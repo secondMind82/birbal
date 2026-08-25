@@ -1,20 +1,19 @@
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import 'react-native-gesture-handler';
+import React, { useEffect } from 'react';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import AppNavigator from './src/navigation/AppNavigator';
+import { useAuthStore } from './src/store/authStore';
 
 export default function App() {
+  const restore = useAuthStore((s) => s.restore);
+
+  useEffect(() => {
+    void restore();
+  }, [restore]);
+
   return (
-    <View style={styles.container}>
-      <Text>Open up App.tsx to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
+    <SafeAreaProvider>
+      <AppNavigator />
+    </SafeAreaProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
