@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { FontAwesome } from '@expo/vector-icons';
 import { Button, ErrorText, Input } from '../../components/ui';
 import type { RootStackParamList } from '../../navigation/types';
 import { useAuthStore } from '../../store/authStore';
@@ -41,7 +43,7 @@ export default function LoginScreen({ navigation }: Props) {
         <Text style={styles.brand}>Birbal</Text>
 
         <View style={styles.card}>
-          <Text style={styles.title}>Welcome Back</Text>
+          <Text style={styles.title}>Welcome Back 👋</Text>
           <Text style={styles.subtitle}>Login to continue your productivity journey.</Text>
 
           <Input
@@ -75,6 +77,28 @@ export default function LoginScreen({ navigation }: Props) {
             disabled={!email.trim() || !password}
             style={{ marginTop: spacing.md }}
           />
+
+          <View style={styles.dividerRow}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>OR</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          <Pressable
+            style={styles.socialButton}
+            onPress={() => Alert.alert('Google Sign-In', 'Coming soon.')}>
+            <FontAwesome name="google" size={20} color="#DB4437" />
+            <Text style={styles.socialButtonText}>Continue with Google</Text>
+          </Pressable>
+
+          <Pressable
+            style={styles.socialButton}
+            onPress={() => Alert.alert('Apple Sign-In', 'Coming soon.')}>
+            <FontAwesome name="apple" size={22} color="#1A1A1A" />
+            <Text style={[styles.socialButtonText, { color: '#1A1A1A' }]}>
+              Continue with Apple
+            </Text>
+          </Pressable>
 
           <View style={styles.row}>
             <Text style={styles.rowText}>Don't have an account? </Text>
@@ -122,11 +146,44 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xl,
   },
   show: { color: colors.accent, fontWeight: '600', fontSize: 13 },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: spacing.lg,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.border,
+  },
+  dividerText: {
+    marginHorizontal: spacing.md,
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  socialButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 50,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    marginBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  socialButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text,
+  },
   row: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    marginTop: spacing.md,
+    marginTop: spacing.sm,
   },
   rowText: { fontSize: 14 },
   link: { color: colors.accent, fontWeight: '700', fontSize: 14 },

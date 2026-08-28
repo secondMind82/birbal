@@ -1,12 +1,11 @@
 import { create } from 'zustand';
 import * as api from '../api/apiService';
-import { getErrorMessage } from '../api/client';
-import { session } from './session';
 import type { AuthUser } from '../models/types';
+import { session } from './session';
 
 interface AuthState {
-  isAuthenticated: boolean;
   user: AuthUser | null;
+  isAuthenticated: boolean;
   restoring: boolean;
   isLoading: boolean;
   error: string | null;
@@ -14,12 +13,12 @@ interface AuthState {
   login: (email: string, password: string) => Promise<boolean>;
   signup: (fullName: string, email: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
-  setUser: (user: AuthUser) => Promise<void>;
+  setUser: (user: AuthUser) => void;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
-  isAuthenticated: false,
   user: null,
+  isAuthenticated: false,
   restoring: true,
   isLoading: false,
   error: null,
@@ -27,11 +26,17 @@ export const useAuthStore = create<AuthState>((set) => ({
   restore: async () => {
     try {
       const token = await session.getToken();
-      const user = await session.getUser();
-      if (token && user) {
-        set({ isAuthenticated: true, user });
+      if (!token) {
+        set({ restoring: false });
+        return;
       }
-    } finally {
+      const user = await session.getUser();
+      if (user) {
+        set({ user, isAuthenticated: true, restoring: false });
+      } else {
+        set({ restoring: false });
+      }
+    } catch {
       set({ restoring: false });
     }
   },
@@ -41,10 +46,11 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const res = await api.login({ email, password });
       await session.saveAuth(res.accessToken, res.user);
-      set({ isAuthenticated: true, user: res.user, isLoading: false });
+      set({ user: res.user, isAuthenticated: true, isLoading: false });
       return true;
     } catch (e) {
-      set({ isLoading: false, error: getErrorMessage(e) });
+      const message = e instanceof Error && e.message ? e.message : 'Login failed';
+      set({ isLoading: false, error: message });
       return false;
     }
   },
@@ -54,21 +60,22 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const res = await api.signup({ fullName, email, password });
       await session.saveAuth(res.accessToken, res.user);
-      set({ isAuthenticated: true, user: res.user, isLoading: false });
+      set({ user: res.user, isAuthenticated: true, isLoading: false });
       return true;
     } catch (e) {
-      set({ isLoading: false, error: getErrorMessage(e) });
+      const message = e instanceof Error && e.message ? e.message : 'Signup failed';
+      set({ isLoading: false, error: message });
       return false;
     }
   },
 
   logout: async () => {
     await session.clear();
-    set({ isAuthenticated: false, user: null, error: null });
+    set({ user: null, isAuthenticated: false, error: null });
   },
 
-  setUser: async (user) => {
-    await session.updateUser(user);
+  setUser: (user) => {
     set({ user });
+    void session.updateUser(user);
   },
 }));
