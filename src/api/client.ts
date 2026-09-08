@@ -1,7 +1,8 @@
 import axios from 'axios';
 import { session } from '../store/session';
 
-export const BASE_URL = 'https://secondbrain-api-nv4i.onrender.com/';
+export const BASE_URL =
+  process.env.EXPO_PUBLIC_API_URL ?? 'https://secondbrain-api-nv4i.onrender.com/';
 
 export const client = axios.create({
   baseURL: BASE_URL,

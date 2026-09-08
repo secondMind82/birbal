@@ -25,6 +25,15 @@ export const login = (request: LoginRequest) =>
 export const signup = (request: SignupRequest) =>
   client.post<AuthResponse>('auth/signup', request).then((r) => r.data);
 
+export const googleLogin = (idToken: string) =>
+  client.post<AuthResponse>('auth/google', { idToken }).then((r) => r.data);
+
+export const appleLogin = (request: {
+  identityToken: string;
+  email?: string | null;
+  fullName?: string;
+}) => client.post<AuthResponse>('auth/apple', request).then((r) => r.data);
+
 export const getProfile = () =>
   client.get<AuthUser>('auth/profile').then((r) => r.data);
 

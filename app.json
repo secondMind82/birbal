@@ -7,7 +7,9 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.tci.birbalrn",
+      "usesAppleSignIn": true
     },
     "android": {
       "adaptiveIcon": {
@@ -25,12 +27,20 @@
     "plugins": [
       "expo-secure-store",
       "@react-native-community/datetimepicker",
-      "expo-font"
+      "expo-font",
+      "expo-apple-authentication",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.YOUR_GOOGLE_REVERSED_CLIENT_ID"
+        }
+      ]
     ],
     "extra": {
       "eas": {
-        "projectId": "5b4123ba-d57d-4a41-ad90-21fae973fcda"
+        "projectId": "1c54c7af-55d6-4c6e-b9e7-79a108dd96bc"
       }
-    }
+    },
+    "owner": "secbrain"
   }
 }

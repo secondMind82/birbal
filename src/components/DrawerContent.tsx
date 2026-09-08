@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { DrawerContentComponentProps } from '@react-navigation/drawer';
 import { useAuthStore } from '../store/authStore';
@@ -23,7 +23,7 @@ export default function DrawerContent(props: DrawerContentComponentProps) {
     <LinearGradient
       colors={[colors.sidebarStart, colors.sidebarEnd]}
       style={styles.gradient}>
-      <Text style={styles.logo}>Birbal</Text>
+      <Image source={require('../../assets/logo.png')} style={styles.logo} resizeMode="contain" />
       <View style={styles.divider} />
 
       <View style={styles.menu}>
@@ -61,11 +61,10 @@ export default function DrawerContent(props: DrawerContentComponentProps) {
 const styles = StyleSheet.create({
   gradient: { flex: 1, paddingHorizontal: 12 },
   logo: {
-    color: '#fff',
-    fontSize: 26,
-    fontWeight: '800',
-    textAlign: 'center',
-    marginTop: 60,
+    width: 240,
+    height: 120,
+    alignSelf: 'center',
+    marginTop: 40,
     marginBottom: 16,
   },
   divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.15)', marginVertical: 8 },
