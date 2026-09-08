@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -15,14 +15,21 @@ import { FontAwesome } from '@expo/vector-icons';
 import { Button, ErrorText, Input } from '../../components/ui';
 import type { RootStackParamList } from '../../navigation/types';
 import { useAuthStore } from '../../store/authStore';
+import { signOutFromGoogle } from '../../services/socialAuth';
 import { colors, radii, spacing } from '../../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
 export default function LoginScreen({ navigation }: Props) {
   const login = useAuthStore((s) => s.login);
+  const loginWithGoogle = useAuthStore((s) => s.loginWithGoogle);
+  const loginWithApple = useAuthStore((s) => s.loginWithApple);
   const isLoading = useAuthStore((s) => s.isLoading);
   const error = useAuthStore((s) => s.error);
+
+  useEffect(() => {
+    void signOutFromGoogle();
+  }, []);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -30,6 +37,22 @@ export default function LoginScreen({ navigation }: Props) {
 
   const handleLogin = async () => {
     const ok = await login(email.trim(), password);
+    if (!ok) return;
+    navigation.replace('Main');
+  };
+
+  const handleGoogleLogin = async () => {
+    const ok = await loginWithGoogle();
+    if (!ok) return;
+    navigation.replace('Main');
+  };
+
+  const handleAppleLogin = async () => {
+    if (Platform.OS !== 'ios') {
+      Alert.alert('Apple Sign-In', 'Apple Sign-In sirf iOS pe available hai.');
+      return;
+    }
+    const ok = await loginWithApple();
     if (!ok) return;
     navigation.replace('Main');
   };
@@ -86,14 +109,14 @@ export default function LoginScreen({ navigation }: Props) {
 
           <Pressable
             style={styles.socialButton}
-            onPress={() => Alert.alert('Google Sign-In', 'Coming soon.')}>
+            onPress={() => void handleGoogleLogin()}>
             <FontAwesome name="google" size={20} color="#DB4437" />
             <Text style={styles.socialButtonText}>Continue with Google</Text>
           </Pressable>
 
           <Pressable
             style={styles.socialButton}
-            onPress={() => Alert.alert('Apple Sign-In', 'Coming soon.')}>
+            onPress={() => void handleAppleLogin()}>
             <FontAwesome name="apple" size={22} color="#1A1A1A" />
             <Text style={[styles.socialButtonText, { color: '#1A1A1A' }]}>
               Continue with Apple

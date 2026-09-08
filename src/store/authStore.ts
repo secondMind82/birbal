@@ -2,6 +2,11 @@ import { create } from 'zustand';
 import * as api from '../api/apiService';
 import type { AuthUser } from '../models/types';
 import { session } from './session';
+import {
+  signInWithGoogle,
+  signInWithApple,
+  SocialAuthCancelledError,
+} from '../services/socialAuth';
 
 interface AuthState {
   user: AuthUser | null;
@@ -12,6 +17,8 @@ interface AuthState {
   restore: () => Promise<void>;
   login: (email: string, password: string) => Promise<boolean>;
   signup: (fullName: string, email: string, password: string) => Promise<boolean>;
+  loginWithGoogle: () => Promise<boolean>;
+  loginWithApple: () => Promise<boolean>;
   logout: () => Promise<void>;
   setUser: (user: AuthUser) => void;
 }
@@ -64,6 +71,46 @@ export const useAuthStore = create<AuthState>((set) => ({
       return true;
     } catch (e) {
       const message = e instanceof Error && e.message ? e.message : 'Signup failed';
+      set({ isLoading: false, error: message });
+      return false;
+    }
+  },
+
+  loginWithGoogle: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const idToken = await signInWithGoogle();
+      const res = await api.googleLogin(idToken);
+      await session.saveAuth(res.accessToken, res.user);
+      set({ user: res.user, isAuthenticated: true, isLoading: false });
+      return true;
+    } catch (e) {
+      if (e instanceof SocialAuthCancelledError) {
+        set({ isLoading: false, error: null });
+        return false;
+      }
+      const message =
+        e instanceof Error && e.message ? e.message : 'Google Sign-In failed';
+      set({ isLoading: false, error: message });
+      return false;
+    }
+  },
+
+  loginWithApple: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const credential = await signInWithApple();
+      const res = await api.appleLogin(credential);
+      await session.saveAuth(res.accessToken, res.user);
+      set({ user: res.user, isAuthenticated: true, isLoading: false });
+      return true;
+    } catch (e) {
+      if (e instanceof SocialAuthCancelledError) {
+        set({ isLoading: false, error: null });
+        return false;
+      }
+      const message =
+        e instanceof Error && e.message ? e.message : 'Apple Sign-In failed';
       set({ isLoading: false, error: message });
       return false;
     }

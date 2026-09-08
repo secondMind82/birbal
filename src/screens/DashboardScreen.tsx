@@ -14,7 +14,6 @@ import { useNavigation } from '@react-navigation/native';
 import AppShell from '../components/AppShell';
 import {
   createEntity,
-  createNote,
   createTimeline,
   getDashboard,
   getEntities,
@@ -131,9 +130,38 @@ export default function DashboardScreen() {
     setError(null);
     try {
       if (!text.includes('@')) {
-        const rawTitle =
-          text.length > 30 ? `${before(text.slice(0, 30), '\n')}...` : before(text, '\n');
-        await createNote({ title: rawTitle, content: text, pinned: false });
+        const firstNameWord = text.split(/\s+/)[0] || '';
+        let personId: string | null = null;
+        if (firstNameWord) {
+          const existing = entities.find(
+            (e) => e.name.toLowerCase() === firstNameWord.toLowerCase(),
+          );
+          if (existing) {
+            personId = existing.id;
+          } else {
+            const created = await createEntity({
+              name: firstNameWord,
+              type: 'PERSON',
+              description: 'Automatically created via post.',
+            });
+            personId = created.id;
+            setEntities((prev) => [...prev, created]);
+          }
+        }
+
+        const description = text;
+        const title =
+          description.length > 35
+            ? `${before(description.slice(0, 35), '\n')}...`
+            : before(description, '\n');
+
+        await createTimeline({
+          title,
+          description,
+          eventDate: extractDateTime(text).toISOString(),
+          showOnCalendar: true,
+          entityIds: personId ? [personId] : [],
+        });
       } else {
         const linkedIds: string[] = [];
         const mentions: string[] = [];
@@ -331,41 +359,165 @@ function QuickAction({
 }
 
 function TimelinePreviewCard({ event, onClick }: { event: Timeline; onClick: () => void }) {
-  let cleanTitle: string = event.title.replace(/@/g, '');
-  event.entities?.forEach((link) => {
-    cleanTitle = cleanTitle.replace(new RegExp(link.entity.name, 'ig'), '');
-  });
-  cleanTitle = cleanTitle.trim().replace(/\s+/g, ' ') || 'Event Details';
+  const personName =
+    event.entities?.find((l) => l.entity.type === 'PERSON')?.entity.name ??
+    (event.description ?? '').trim().split(/\s+/)[0] ??
+    '';
+
+  const letter = personName ? personName[0].toUpperCase() : '?';
+  const timeLabel = formatRelativeTime(event.eventDate);
+  const parsed = parseActivity(event.description ?? '');
 
   return (
     <Card style={styles.timelineCard}>
       <Pressable onPress={onClick}>
-        <View style={styles.timelineRow}>
-          <View style={styles.timelineIconBox}>
-            <Text style={{ fontSize: 22 }}>📅</Text>
+        <View style={styles.feedHeader}>
+          <View style={styles.feedAvatar}>
+            <Text style={styles.feedAvatarText}>{letter}</Text>
           </View>
-          <View style={styles.flexOne}>
-            <Text style={styles.timelineTitle} numberOfLines={1}>
-              {cleanTitle}
+          <View style={styles.feedHeaderText}>
+            <Text style={styles.feedName}>{personName}</Text>
+            <Text style={styles.feedMeta}>{timeLabel}</Text>
+          </View>
+        </View>
+
+        <View style={styles.feedBody}>
+          <Text style={styles.feedTitle}>{parsed.title}</Text>
+          {parsed.details.map((line, i) => (
+            <Text key={i} style={styles.feedDetail}>
+              {line}
             </Text>
-            <Text style={styles.timelineDate}>{before(event.eventDate, 'T')}</Text>
-          </View>
-          {event.entities && event.entities.length > 0 && (
-            <View style={styles.entityChip}>
-              <Text style={styles.entityChipText} numberOfLines={1}>
-                {event.entities.map((l) => l.entity.name).join(', ')}
-              </Text>
-            </View>
-          )}
+          ))}
+          {parsed.message ? <Text style={styles.feedMessage}>{parsed.message}</Text> : null}
         </View>
       </Pressable>
     </Card>
   );
 }
 
+function formatRelativeTime(dateStr: string): string {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  const diff = Date.now() - d.getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return mins <= 1 ? 'Just now' : `${mins} minutes ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'Yesterday';
+  if (days < 7) return `${days} days ago`;
+  if (d.getFullYear() === new Date().getFullYear()) {
+    return d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
+  }
+  return d.toLocaleDateString('en', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+interface ParsedActivity {
+  title: string;
+  details: string[];
+  message: string;
+}
+
+const DAY_MAP: Record<string, string> = {
+  sunday: 'Sunday',
+  monday: 'Monday',
+  tuesday: 'Tuesday',
+  wednesday: 'Wednesday',
+  thursday: 'Thursday',
+  friday: 'Friday',
+  saturday: 'Saturday',
+  today: 'Today',
+  tomorrow: 'Tomorrow',
+};
+
+const LOCATIONS = ['office', 'home', 'restaurant', 'cafe', 'café', 'hotel', 'garden', 'hall', 'masjid'];
+
+function parseActivity(text: string): ParsedActivity {
+  const lower = ' ' + text.toLowerCase() + ' ';
+  const person = text.trim().split(/\s+/)[0] || '';
+  const details: string[] = [];
+
+  const dayMatch = text.match(
+    /\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday|today|tomorrow)\b/i,
+  );
+  if (dayMatch) {
+    details.push(`📅 Day: ${DAY_MAP[dayMatch[1].toLowerCase()] ?? dayMatch[1]}`);
+  }
+
+  const timeMatch =
+    text.match(/\b(after|before)\s+(namaz\s*-?\s*e\s*-?\s*(?:isha|maghrib|fajr|zuhr|asr)|isha|maghrib|fajr|zuhr|asr)\b/i) ||
+    text.match(/(\d{1,2})(:(\d{2}))?\s*(am|pm)/i);
+  if (timeMatch) {
+    const raw = timeMatch[0].trim();
+    if (/namaz|isha|maghrib|fajr|zuhr|asr/i.test(raw)) {
+      details.push(`🕌 Time: ${raw.replace(/\s+/g, ' ')}`);
+    } else {
+      const hrs = parseInt(timeMatch[1], 10);
+      const ampm = (timeMatch[4] ?? (hrs >= 12 ? 'pm' : 'am')).toLowerCase();
+      const h12 = hrs % 12 === 0 ? 12 : hrs % 12;
+      const mm = timeMatch[3] ? `:${timeMatch[3]}` : ':00';
+      details.push(`⏰ Time: ${h12}${mm} ${ampm.toUpperCase()}`);
+    }
+  }
+
+  const contribMatch = text.match(/(?:contribution|contro|contrib|contribute|contri)\s+(?:rs\.?|rupees)?\s*(\d+)/i);
+  if (contribMatch) {
+    details.push(`💰 Contribution: ₹${contribMatch[1]} per person`);
+  }
+
+  const locMatch = text.match(new RegExp(`\\b(?:at|in)\\s+(${LOCATIONS.join('|')})\\b`, 'i'));
+  if (locMatch) {
+    const loc = locMatch[1].toLowerCase();
+    details.push(`📍 Location: ${loc[0].toUpperCase()}${loc.slice(1)}`);
+  }
+
+  if (/\bparty\b/i.test(lower)) {
+    return {
+      title: '🎉 PARTY ANNOUNCEMENT 🎉',
+      details: [`🤝 Hosted by ${person}`, ...details],
+      message: '✨ Come, Eat & Enjoy! ✨ Everyone is invited ❤️',
+    };
+  }
+  if (/\b(dinner|dawat|feast|lunch|meal)\b/i.test(lower)) {
+    return {
+      title: lower.includes('dinner') ? '🍽️ DINNER ANNOUNCEMENT 🍽️' : '🍽️ DAWAT REMINDER 🍽️',
+      details: [`🤝 Hosted by ${person}`, ...details],
+      message: '✨ Come, Eat & Enjoy! ✨ Everyone is invited ❤️',
+    };
+  }
+  if (/\bmeeting\b/i.test(lower)) {
+    return {
+      title: '🤝 MEETING',
+      details,
+      message: `Meeting with ${person}.`,
+    };
+  }
+  if (/\b(pay|payment|owes|paid|receive|send|transfer)\b/i.test(lower)) {
+    const amtMatch = text.match(/₹?\s*(\d+)/) || text.match(/(\d+)\s*(?:rs\.?|rupees)/i);
+    const rest = text.replace(new RegExp(person, 'ig'), '').replace(/\s+/g, ' ').trim();
+    return {
+      title: '💰 PAYMENT REMINDER',
+      details: amtMatch ? [`💰 ${person} owes ₹${amtMatch[1]}.`, ...details] : details,
+      message: rest,
+    };
+  }
+  if (/\bbirthday\b/i.test(lower)) {
+    return {
+      title: '🎂 BIRTHDAY',
+      details: [`🎉 Wishing ${person} a very happy birthday!`],
+      message: '',
+    };
+  }
+  const rest = text.replace(new RegExp(person, 'ig'), '').replace(/\s+/g, ' ').trim();
+  return {
+    title: person ? `${person}'s Activity` : 'Event Details',
+    details,
+    message: rest,
+  };
+}
+
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  flexOne: { flex: 1 },
   container: { padding: spacing.xl, backgroundColor: '#F9FAFB' },
   greeting: { fontSize: 15, fontWeight: '600', color: colors.textSecondary },
   fullName: { fontSize: 24, fontWeight: '800', color: colors.text, marginTop: 2 },
@@ -428,28 +580,24 @@ const styles = StyleSheet.create({
   quickLabel: { fontSize: 13, fontWeight: '700', color: colors.text },
   quickSub: { fontSize: 11, color: colors.textSecondary, marginTop: 2 },
   emptyLine: { color: colors.textSecondary, fontSize: 14, textAlign: 'center', paddingVertical: 32 },
-  timelineCard: { marginBottom: spacing.md },
-  timelineRow: { flexDirection: 'row', alignItems: 'center' },
-  timelineIconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: radii.sm,
-    backgroundColor: '#EEF2FF',
+  timelineCard: { marginBottom: spacing.md, padding: spacing.md + 2 },
+  feedHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md },
+  feedAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: colors.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: spacing.md,
   },
-  timelineTitle: { fontWeight: '700', fontSize: 15, color: '#111827' },
-  timelineDate: { fontSize: 12, color: '#6B7280', marginTop: 2 },
-  entityChip: {
-    backgroundColor: '#EEF2FF',
-    borderRadius: radii.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    marginLeft: spacing.sm,
-    maxWidth: 100,
-  },
-  entityChipText: { fontSize: 11, color: colors.accent, fontWeight: '700' },
+  feedAvatarText: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  feedHeaderText: { marginLeft: spacing.md, flex: 1 },
+  feedName: { fontSize: 15, fontWeight: '700', color: '#111827' },
+  feedMeta: { fontSize: 12, color: '#6B7280', marginTop: 2 },
+  feedBody: {},
+  feedTitle: { fontSize: 16, fontWeight: '800', color: '#111827', marginBottom: spacing.sm },
+  feedDetail: { fontSize: 13, color: colors.text, lineHeight: 20, marginBottom: 2 },
+  feedMessage: { fontSize: 13, color: colors.textSecondary, lineHeight: 20, marginTop: spacing.sm },
   diaryCard: { marginBottom: spacing.sm },
   diaryRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   diaryTitle: { fontWeight: '600', fontSize: 15, color: '#111827' },
