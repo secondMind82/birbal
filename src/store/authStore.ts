@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import * as api from '../api/apiService';
+import { getErrorMessage } from '../api/client';
 import type { AuthUser } from '../models/types';
 import { session } from './session';
 import {
@@ -56,8 +57,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ user: res.user, isAuthenticated: true, isLoading: false });
       return true;
     } catch (e) {
-      const message = e instanceof Error && e.message ? e.message : 'Login failed';
-      set({ isLoading: false, error: message });
+      set({ isLoading: false, error: getErrorMessage(e) });
       return false;
     }
   },
@@ -70,8 +70,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({ user: res.user, isAuthenticated: true, isLoading: false });
       return true;
     } catch (e) {
-      const message = e instanceof Error && e.message ? e.message : 'Signup failed';
-      set({ isLoading: false, error: message });
+      set({ isLoading: false, error: getErrorMessage(e) });
       return false;
     }
   },
@@ -89,8 +88,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         set({ isLoading: false, error: null });
         return false;
       }
-      const message =
-        e instanceof Error && e.message ? e.message : 'Google Sign-In failed';
+      const message = getErrorMessage(e);
       set({ isLoading: false, error: message });
       return false;
     }
@@ -109,8 +107,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         set({ isLoading: false, error: null });
         return false;
       }
-      const message =
-        e instanceof Error && e.message ? e.message : 'Apple Sign-In failed';
+      const message = getErrorMessage(e);
       set({ isLoading: false, error: message });
       return false;
     }

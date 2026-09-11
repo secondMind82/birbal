@@ -22,7 +22,10 @@ client.interceptors.request.use(async (config) => {
 
 export function getErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
-    const data = error.response?.data as { message?: string } | undefined;
+    const data = error.response?.data as
+      | { message?: string | string[] }
+      | undefined;
+    if (Array.isArray(data?.message)) return data.message.join('\n');
     if (data?.message) return data.message;
     if (error.response) return `Server error (${error.response.status})`;
     return 'Network error. Check your internet connection.';

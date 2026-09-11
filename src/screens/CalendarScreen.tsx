@@ -84,7 +84,12 @@ export default function CalendarScreen() {
       );
     }
     while (cells.length % 7 !== 0) cells.push(null);
-    return cells;
+
+    const rows: (string | null)[][] = [];
+    for (let i = 0; i < cells.length; i += 7) {
+      rows.push(cells.slice(i, i + 7));
+    }
+    return rows;
   }, [selectedMonth]);
 
   const todayKey = new Date().toISOString().slice(0, 10);
@@ -172,35 +177,39 @@ export default function CalendarScreen() {
           </View>
 
           <View style={styles.grid}>
-            {grid.map((day, i) => {
-              if (!day) return <View key={`empty-${i}`} style={styles.cell} />;
-              const dayNum = parseInt(day.slice(8), 10);
-              const hasEvents = eventsByDay.has(day);
-              const isToday = day === todayKey;
-              const isSelected = day === selectedDate;
-              return (
-                <Pressable key={day} style={styles.cell} onPress={() => setSelectedDate(day)}>
-                  <View
-                    style={[
-                      styles.dayCircle,
-                      isSelected && styles.daySelected,
-                      !isSelected && isToday && styles.dayToday,
-                    ]}>
-                    <Text
-                      style={[
-                        styles.dayText,
-                        isToday && !isSelected && styles.dayTextToday,
-                        isSelected && styles.dayTextSelected,
-                      ]}>
-                      {dayNum}
-                    </Text>
-                  </View>
-                  {hasEvents ? (
-                    <View style={[styles.dot, isSelected && { backgroundColor: colors.accent }]} />
-                  ) : null}
-                </Pressable>
-              );
-            })}
+            {grid.map((row, ri) => (
+              <View key={`row-${ri}`} style={styles.gridRow}>
+                {row.map((day, ci) => {
+                  if (!day) return <View key={`empty-${ri}-${ci}`} style={styles.cell} />;
+                  const dayNum = parseInt(day.slice(8), 10);
+                  const hasEvents = eventsByDay.has(day);
+                  const isToday = day === todayKey;
+                  const isSelected = day === selectedDate;
+                  return (
+                    <Pressable key={day} style={styles.cell} onPress={() => setSelectedDate(day)}>
+                      <View
+                        style={[
+                          styles.dayCircle,
+                          isSelected && styles.daySelected,
+                          !isSelected && isToday && styles.dayToday,
+                        ]}>
+                        <Text
+                          style={[
+                            styles.dayText,
+                            isToday && !isSelected && styles.dayTextToday,
+                            isSelected && styles.dayTextSelected,
+                          ]}>
+                          {dayNum}
+                        </Text>
+                      </View>
+                      {hasEvents ? (
+                        <View style={[styles.dot, isSelected && { backgroundColor: colors.accent }]} />
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ))}
           </View>
         </View>
 
@@ -310,8 +319,9 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.textSecondary,
   },
-  grid: { flexDirection: 'row', flexWrap: 'wrap' },
-  cell: { width: `${100 / 7}%` as never, alignItems: 'center', paddingVertical: 4 },
+  grid: { },
+  gridRow: { flexDirection: 'row' },
+  cell: { flex: 1, alignItems: 'center', paddingVertical: 4 },
   dayCircle: {
     width: 32,
     height: 32,

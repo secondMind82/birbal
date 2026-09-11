@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -63,7 +64,7 @@ export default function LoginScreen({ navigation }: Props) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <StatusBar barStyle="dark-content" />
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Text style={styles.brand}>Birbal</Text>
+        <Image source={require('../../../assets/auth-logo.png')} style={styles.logo} resizeMode="contain" />
 
         <View style={styles.card}>
           <Text style={styles.title}>Welcome Back 👋</Text>
@@ -143,11 +144,11 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     backgroundColor: '#F5F7FB',
   },
-  brand: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: '#1A1A1A',
-    textAlign: 'center',
+  logo: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    alignSelf: 'center',
     marginBottom: spacing.xxl,
   },
   card: {
