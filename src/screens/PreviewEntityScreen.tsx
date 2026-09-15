@@ -13,9 +13,12 @@ type Props = NativeStackScreenProps<RootStackParamList, 'PreviewEntity'>;
 
 const TYPE_ICONS: Record<string, string> = {
   PERSON: '👤',
+  COMPANY: '🏢',
   PLACE: '📍',
   ORGANIZATION: '🏢',
   EVENT: '📅',
+  COURSE: '🎓',
+  TECHNOLOGY: '💻',
 };
 
 export default function PreviewEntityScreen({ route, navigation }: Props) {

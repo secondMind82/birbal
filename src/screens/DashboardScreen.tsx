@@ -24,6 +24,7 @@ import { Card } from '../components/ui';
 import type { DashboardResponse, Entity, Timeline } from '../models/types';
 import { useAuthStore } from '../store/authStore';
 import {
+  classifyEntityType,
   extractEventDate,
   formatRelativeTime,
   parseActivity,
@@ -175,7 +176,7 @@ export default function DashboardScreen() {
             if (word) {
               const created = await createEntity({
                 name: word,
-                type: 'PERSON',
+                type: classifyEntityType(word),
                 description: 'Automatically created via post.',
               });
               linkedIds.push(created.id);

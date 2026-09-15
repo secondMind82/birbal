@@ -22,9 +22,12 @@ type Nav = NativeStackNavigationProp<import('../navigation/types').RootStackPara
 
 const TYPE_ICONS: Record<string, string> = {
   PERSON: '👤',
+  COMPANY: '🏢',
   PLACE: '📍',
   ORGANIZATION: '🏢',
   EVENT: '📅',
+  COURSE: '🎓',
+  TECHNOLOGY: '💻',
 };
 
 export default function EntitiesScreen() {

@@ -226,6 +226,148 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+const DEGREE_COURSES = new Set([
+  'bums',
+  'mbbs',
+  'bams',
+  'bhms',
+  'bds',
+  'bpharm',
+  'be',
+  'btech',
+  'bsc',
+  'ba',
+  'bcom',
+  'bca',
+  'bba',
+  'llb',
+  'mba',
+  'msc',
+  'ma',
+  'mcom',
+  'mca',
+  'mtech',
+  'llm',
+  'phd',
+  'md',
+  'ms',
+  'diploma',
+  'degree',
+]);
+
+const PLACE_KEYWORDS = new Set([
+  'mumbai',
+  'bangalore',
+  'bengaluru',
+  'delhi',
+  'hyderabad',
+  'chennai',
+  'kolkata',
+  'pune',
+  'ahmedabad',
+  'jaipur',
+  'lucknow',
+  'kanpur',
+  'nagpur',
+  'indore',
+  'bhopal',
+  'patna',
+  'goa',
+  'agra',
+  'london',
+  'paris',
+  'tokyo',
+  'dubai',
+  'singapore',
+  'toronto',
+  'sydney',
+  'newyork',
+  'america',
+  'india',
+]);
+
+const TECH_KEYWORDS = new Set([
+  'react',
+  'reactnative',
+  'javascript',
+  'typescript',
+  'python',
+  'java',
+  'kotlin',
+  'swift',
+  'flutter',
+  'dart',
+  'nodejs',
+  'angular',
+  'vue',
+  'nextjs',
+  'graphql',
+  'mongodb',
+  'postgresql',
+  'mysql',
+  'redis',
+  'docker',
+  'kubernetes',
+  'aws',
+  'azure',
+  'firebase',
+  'tailwind',
+  'webpack',
+  'vite',
+  'git',
+  'github',
+  'gitlab',
+  'expo',
+]);
+
+const ORGANIZATION_SUFFIXES = [
+  'inc',
+  'ltd',
+  'limited',
+  'llc',
+  'corp',
+  'corporation',
+  'co',
+  'group',
+  'tech',
+  'technologies',
+  'soft',
+  'sys',
+  'labs',
+  'global',
+  'digital',
+  'solutions',
+  'bank',
+  'banking',
+  'telecom',
+  'communications',
+  'motors',
+  'industries',
+  'enterprises',
+];
+
+export function classifyEntityType(name: string): string {
+  const clean = sanitizeName(name);
+  const lower = clean.toLowerCase();
+  const upper = clean.toUpperCase();
+
+  if (!lower) return 'PERSON';
+
+  if (DEGREE_COURSES.has(lower)) return 'COURSE';
+  if (PLACE_KEYWORDS.has(lower)) return 'PLACE';
+  if (TECH_KEYWORDS.has(lower)) return 'TECHNOLOGY';
+
+  if (TECH_KEYWORDS.has(lower.replace(/[\s._-]+/g, ''))) return 'TECHNOLOGY';
+
+  if (clean === upper && clean.length >= 2 && clean.length <= 8) return 'COMPANY';
+
+  if (ORGANIZATION_SUFFIXES.some((suffix) => lower.endsWith(suffix))) {
+    return 'COMPANY';
+  }
+
+  return 'PERSON';
+}
+
 export function formatRelativeTime(dateStr: string): string {
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return dateStr;
