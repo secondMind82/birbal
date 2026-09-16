@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -34,6 +35,8 @@ import { colors, radii, spacing } from '../theme';
 
 type Nav = NativeStackNavigationProp<import('../navigation/types').RootStackParamList>;
 
+
+
 const before = (s: string, sep: string) =>
   s.includes(sep) ? s.slice(0, s.indexOf(sep)) : s;
 
@@ -51,6 +54,37 @@ function greetingInfo(): { text: string; emoji: string } {
   return { text: 'Good Night', emoji: '🌙' };
 }
 
+function findEntityByName(rawName: string, entities: Entity[]): Entity | undefined {
+  const target = sanitizeName(rawName).toLowerCase();
+  if (!target) return undefined;
+
+  const candidates = entities.filter((e) => sanitizeName(e.name).toLowerCase().includes(target));
+  if (candidates.length === 0) return undefined;
+
+  // Prefer exact sanitized match
+  const exact = candidates.find((e) => sanitizeName(e.name).toLowerCase() === target);
+  if (exact) return exact;
+
+  // If multiple candidates, pick the one with most linked timelines (most active)
+  if (timelines && timelines.length > 0) {
+    let best: Entity | undefined = undefined;
+    let bestCount = -1;
+    for (const c of candidates) {
+      const count = timelines.filter((t) => (t.entities ?? []).some((l) => l.entityId === c.id)).length;
+      if (count > bestCount) {
+        best = c;
+        bestCount = count;
+      }
+    }
+    if (best) return best;
+  }
+
+  // Fallback: starts-with then contains
+  const starts = candidates.find((e) => sanitizeName(e.name).toLowerCase().startsWith(target));
+  if (starts) return starts;
+  return candidates[0];
+}
+
 export default function DashboardScreen() {
   const navigation = useNavigation<Nav>();
   const user = useAuthStore((s) => s.user);
@@ -58,6 +92,7 @@ export default function DashboardScreen() {
   const [data, setData] = useState<DashboardResponse | null>(null);
   const [entities, setEntities] = useState<Entity[]>([]);
   const [recentTimelines, setRecentTimelines] = useState<Timeline[]>([]);
+  const [timelines, setTimelines] = useState<Timeline[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,10 +114,9 @@ export default function DashboardScreen() {
       ]);
       setData(dash);
       setEntities(ents);
+        setTimelines(timelines);
       setRecentTimelines(
-        [...timelines]
-          .sort((a, b) => b.eventDate.localeCompare(a.eventDate))
-          .slice(0, 5),
+        [...timelines].sort((a, b) => b.eventDate.localeCompare(a.eventDate)).slice(0, 5),
       );
     } catch (e) {
       setError(getErrorMessage(e));
@@ -125,9 +159,7 @@ export default function DashboardScreen() {
         let personId: string | null = null;
         let personName = firstNameWord;
         if (firstNameWord) {
-          const existing = entities.find(
-            (e) => sanitizeName(e.name).toLowerCase() === firstNameWord.toLowerCase(),
-          );
+          const existing = findEntityByName(firstNameWord, entities);
           if (existing) {
             personId = existing.id;
             personName = existing.name;
@@ -146,7 +178,7 @@ export default function DashboardScreen() {
         const description = text;
         const parsed = parseActivity(description, personName);
         const title = parsed.matched && parsed.title ? parsed.title : defaultTitle(description);
-
+        Alert.alert('Posting', `Attaching to: ${personName || 'No entity'}`);
         await createTimeline({
           title,
           description,
@@ -157,32 +189,27 @@ export default function DashboardScreen() {
       } else {
         const linkedIds: string[] = [];
         const mentions: string[] = [];
-        const atIndices: number[] = [];
-        for (let i = 0; i < text.length; i++) {
-          if (text[i] === '@' && (i === 0 || /\s/.test(text[i - 1]))) atIndices.push(i);
-        }
 
-        const sorted = [...entities].sort((a, b) => b.name.length - a.name.length);
-        for (const idx of atIndices) {
-          const remaining = text.slice(idx + 1);
-          const match = sorted.find((e) =>
-            remaining.toLowerCase().startsWith(e.name.toLowerCase()),
-          );
-          if (match) {
-            linkedIds.push(match.id);
-            mentions.push(`@${remaining.slice(0, match.name.length)}`);
+        // Use regex to capture mention words robustly (stop at whitespace or punctuation)
+        const mentionMatches = Array.from(text.matchAll(/@([^\s@.,!?:;\n\r]+)/g));
+        for (const m of mentionMatches) {
+          const raw = m[1] ?? '';
+          const word = sanitizeName(raw);
+          if (!word) continue;
+
+          const existing = findEntityByName(word, entities);
+          if (existing) {
+            linkedIds.push(existing.id);
+            mentions.push(`@${raw}`);
           } else {
-            const word = sanitizeName(remaining.split(/[\s.,]/)[0]);
-            if (word) {
-              const created = await createEntity({
-                name: word,
-                type: classifyEntityType(word),
-                description: 'Automatically created via post.',
-              });
-              linkedIds.push(created.id);
-              setEntities((prev) => [...prev, created]);
-              mentions.push(`@${word}`);
-            }
+            const created = await createEntity({
+              name: word,
+              type: classifyEntityType(word),
+              description: 'Automatically created via post.',
+            });
+            linkedIds.push(created.id);
+            setEntities((prev) => [...prev, created]);
+            mentions.push(`@${word}`);
           }
         }
 
@@ -197,6 +224,8 @@ export default function DashboardScreen() {
         }
 
         const parsed = parseActivity(description, mentions[0]?.slice(1));
+        const matchedNames = [...new Set(linkedIds.map((id) => entities.find((e) => e.id === id)?.name).filter(Boolean))];
+        Alert.alert('Posting', `Attaching to: ${matchedNames.join(', ') || 'No entity'}`);
         const title = parsed.matched && parsed.title ? parsed.title : defaultTitle(description);
 
         await createTimeline({
@@ -282,6 +311,8 @@ export default function DashboardScreen() {
         </View>
         <QuickAction icon="📝" label="Add Note" sub="Capture an idea" onPress={() => navigation.navigate('NewNote')} wide />
 
+        {/* Recent Entities removed — showing Recent Timeline only */}
+
         {/* Recent Timeline */}
         <View style={[styles.sectionHeader]}>
           <Text style={styles.sectionTitleBig}>Recent Timeline</Text>
@@ -353,47 +384,40 @@ function TimelinePreviewCard({ event, onClick }: { event: Timeline; onClick: () 
     event.entities?.find((l) => l.entity.type === 'PERSON')?.entity.name ??
     (event.description ?? '').trim().split(/\s+/)[0] ??
     '';
-
   const letter = personName ? personName[0].toUpperCase() : '?';
   const timeLabel = formatRelativeTime(event.createdAt ?? event.eventDate);
   const parsed = parseActivity(event.description ?? '');
 
   return (
-    <Card style={styles.timelineCard}>
+    <Card style={styles.timelineCardCompact}>
       <Pressable onPress={onClick}>
-        <View style={styles.feedHeader}>
-          <View style={styles.feedAvatar}>
+        <View style={styles.feedHeaderCompact}>
+          <View style={styles.feedAvatarCompact}>
             <Text style={styles.feedAvatarText}>{letter}</Text>
           </View>
-          <View style={styles.feedHeaderText}>
+          <View style={styles.feedHeaderTextCompact}>
             <Text style={styles.feedName}>{personName}</Text>
             <Text style={styles.feedMeta}>{timeLabel}</Text>
           </View>
         </View>
 
-        <Text style={styles.feedTitle}>{parsed.title}</Text>
-
-        <View style={styles.detailSection}>
-          {parsed.details.map((row, i) => (
-            <View key={i} style={styles.detailRow}>
-              <Text style={styles.detailEmoji}>{row.emoji}</Text>
-              <View style={styles.detailContent}>
-                <Text style={styles.detailLabel}>{row.label}</Text>
-                <Text style={styles.detailValue}>{row.value}</Text>
-              </View>
-            </View>
-          ))}
+        <View style={styles.feedTitleRowCompact}>
+          <Text style={styles.feedTitleCompact} numberOfLines={1}>
+            {parsed.title || parsed.message || (event.description ?? '').split('\n')[0]
+              || event.title}
+          </Text>
+          <Text style={styles.feedMetaCompact}>{parsed.details[0]?.emoji ?? ''}</Text>
         </View>
 
         {parsed.message ? (
-          <View style={styles.messageBox}>
-            <Text style={styles.feedMessage}>{parsed.message}</Text>
-          </View>
+          <Text style={styles.feedMessageCompact} numberOfLines={2}>{parsed.message}</Text>
         ) : null}
       </Pressable>
     </Card>
   );
 }
+
+
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
@@ -460,6 +484,31 @@ const styles = StyleSheet.create({
   quickSub: { fontSize: 11, color: colors.textSecondary, marginTop: 2 },
   emptyLine: { color: colors.textSecondary, fontSize: 14, textAlign: 'center', paddingVertical: 32 },
   timelineCard: { marginBottom: spacing.md, padding: spacing.lg },
+  timelineCardCompact: {
+    marginBottom: spacing.md,
+    padding: spacing.md,
+    borderRadius: radii.md,
+  },
+  feedHeaderCompact: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
+  feedAvatarCompact: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+  },
+  feedHeaderTextCompact: { flex: 1 },
+  feedTitleRowCompact: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm },
+  feedTitleCompact: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#111827',
+    flex: 1,
+  },
+  feedMetaCompact: { marginLeft: spacing.sm, fontSize: 16 },
+  feedMessageCompact: { fontSize: 13, color: '#6B7280', marginTop: spacing.sm },
   feedHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md },
   feedAvatar: {
     width: 44,
@@ -505,4 +554,6 @@ const styles = StyleSheet.create({
   diaryRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   diaryTitle: { fontWeight: '600', fontSize: 15, color: '#111827' },
   diaryDate: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  /* Entity preview styles */
+  
 });
