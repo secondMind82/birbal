@@ -4,6 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import AppNavigator from './src/navigation/AppNavigator';
+import { initializeDatabase } from './src/db/database';
 import { useAuthStore } from './src/store/authStore';
 
 class ErrorBoundary extends Component<
@@ -39,6 +40,10 @@ export default function App() {
   const restore = useAuthStore((s) => s.restore);
 
   useEffect(() => {
+    void initializeDatabase().catch(() => {
+      // Database init is fail-safe: leave it to lazy getDb() to retry when a
+      // domain repository first needs it. Never block or change auth restore.
+    });
     void restore();
   }, [restore]);
 

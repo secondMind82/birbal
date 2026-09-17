@@ -10,16 +10,18 @@ import {
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import AppShell from '../components/AppShell';
-import { getTimelines } from '../api/apiService';
 import { getErrorMessage } from '../api/client';
 import { EmptyState } from '../components/ui';
 import type { Timeline } from '../models/types';
+import { useAuthStore } from '../store/authStore';
+import * as timelinesService from '../services/timelinesService';
 import { colors, radii, spacing } from '../theme';
 
 type Nav = NativeStackNavigationProp<import('../navigation/types').RootStackParamList>;
 
 export default function TimelineScreen() {
   const navigation = useNavigation<Nav>();
+  const userId = useAuthStore((s) => s.user?.id);
   const [events, setEvents] = useState<Timeline[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,17 +29,39 @@ export default function TimelineScreen() {
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      setLoading(true);
-      getTimelines()
-        .then((list) =>
-          active &&
-          setEvents([...list].sort((a, b) => b.eventDate.localeCompare(a.eventDate))))
-        .catch((e) => active && setError(getErrorMessage(e)))
-        .finally(() => active && setLoading(false));
+      if (!userId) return () => { active = false; };
+
+      (async () => {
+        try {
+          const cached = await timelinesService.getCachedTimelines(userId);
+          if (active) {
+            setEvents(
+              [...cached].sort((a, b) => b.eventDate.localeCompare(a.eventDate)),
+            );
+            setLoading(false);
+          }
+        } catch {
+          if (active) setLoading(false);
+          return;
+        }
+
+        try {
+          const fresh = await timelinesService.getTimelines(userId);
+          if (active) {
+            setEvents(
+              [...fresh].sort((a, b) => b.eventDate.localeCompare(a.eventDate)),
+            );
+            setError(null);
+          }
+        } catch (e) {
+          if (active) setError(getErrorMessage(e));
+        }
+      })();
+
       return () => {
         active = false;
       };
-    }, []),
+    }, [userId]),
   );
 
   if (loading) {

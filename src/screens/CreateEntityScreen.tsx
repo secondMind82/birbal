@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button, ErrorText, FormScreen, Input } from '../components/ui';
-import { createEntity } from '../api/apiService';
 import { getErrorMessage } from '../api/client';
 import type { RootStackParamList } from '../navigation/types';
+import { useAuthStore } from '../store/authStore';
+import * as entitiesService from '../services/entitiesService';
 import { colors, radii, spacing } from '../theme';
 
 const TYPES = ['PERSON', 'PLACE', 'ORGANIZATION', 'EVENT'];
@@ -12,6 +13,7 @@ const TYPES = ['PERSON', 'PLACE', 'ORGANIZATION', 'EVENT'];
 type Props = NativeStackScreenProps<RootStackParamList, 'NewEntity'>;
 
 export default function CreateEntityScreen({ navigation }: Props) {
+  const userId = useAuthStore((s) => s.user?.id);
   const [name, setName] = useState('');
   const [type, setType] = useState('PERSON');
   const [description, setDescription] = useState('');
@@ -22,7 +24,11 @@ export default function CreateEntityScreen({ navigation }: Props) {
     setLoading(true);
     setError(null);
     try {
-      await createEntity({ name: name.trim(), type, description: description.trim() || null });
+      await entitiesService.createEntity(userId, {
+        name: name.trim(),
+        type,
+        description: description.trim() || null,
+      });
       navigation.goBack();
     } catch (e) {
       setError(getErrorMessage(e));

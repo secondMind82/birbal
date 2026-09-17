@@ -13,17 +13,13 @@ import {
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import AppShell from '../components/AppShell';
-import {
-  createEntity,
-  createTimeline,
-  getDashboard,
-  getEntities,
-  getTimelines,
-} from '../api/apiService';
 import { getErrorMessage } from '../api/client';
 import { Card } from '../components/ui';
-import type { DashboardResponse, Entity, Timeline } from '../models/types';
+import type { DiaryEntry, Entity, Timeline } from '../models/types';
 import { useAuthStore } from '../store/authStore';
+import * as diaryService from '../services/diaryService';
+import * as entitiesService from '../services/entitiesService';
+import * as timelinesService from '../services/timelinesService';
 import {
   classifyEntityType,
   extractEventDate,
@@ -88,10 +84,11 @@ function findEntityByName(rawName: string, entities: Entity[]): Entity | undefin
 export default function DashboardScreen() {
   const navigation = useNavigation<Nav>();
   const user = useAuthStore((s) => s.user);
+  const userId = useAuthStore((s) => s.user?.id);
 
-  const [data, setData] = useState<DashboardResponse | null>(null);
   const [entities, setEntities] = useState<Entity[]>([]);
   const [recentTimelines, setRecentTimelines] = useState<Timeline[]>([]);
+  const [recentDiary, setRecentDiary] = useState<DiaryEntry[]>([]);
   const [timelines, setTimelines] = useState<Timeline[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -104,34 +101,60 @@ export default function DashboardScreen() {
   const firstName = userName.split(' ')[0];
   const greeting = greetingInfo();
 
+  const applyTimelines = useCallback((all: Timeline[]) => {
+    setTimelines(all);
+    setRecentTimelines(
+      [...all].sort((a, b) => b.eventDate.localeCompare(a.eventDate)).slice(0, 5),
+    );
+  }, []);
+
   const fetchAll = useCallback(async () => {
+    if (!userId) return;
     setError(null);
     try {
-      const [dash, ents, timelines] = await Promise.all([
-        getDashboard(),
-        getEntities(),
-        getTimelines(),
+      const [ents, timelineList, diaryEntries] = await Promise.all([
+        entitiesService.getEntities(userId),
+        timelinesService.getTimelines(userId),
+        diaryService.getDiary(userId),
       ]);
-      setData(dash);
       setEntities(ents);
-        setTimelines(timelines);
-      setRecentTimelines(
-        [...timelines].sort((a, b) => b.eventDate.localeCompare(a.eventDate)).slice(0, 5),
+      applyTimelines(timelineList);
+      setRecentDiary(
+        [...diaryEntries].sort((a, b) => b.entryDate.localeCompare(a.entryDate)),
       );
     } catch (e) {
       setError(getErrorMessage(e));
     }
-  }, []);
+  }, [userId, applyTimelines]);
 
   useEffect(() => {
     void fetchAll();
   }, [fetchAll]);
 
+  const refreshAll = useCallback(async () => {
+    if (!userId) return;
+    setError(null);
+    try {
+      const [ents, timelineList, diaryEntries] = await Promise.all([
+        entitiesService.refreshEntities(userId),
+        timelinesService.refreshTimelines(userId),
+        diaryService.refreshDiary(userId),
+      ]);
+      setEntities(ents);
+      applyTimelines(timelineList);
+      setRecentDiary(
+        [...diaryEntries].sort((a, b) => b.entryDate.localeCompare(a.entryDate)),
+      );
+    } catch (e) {
+      setError(getErrorMessage(e));
+    }
+  }, [userId, applyTimelines]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchAll();
+    await refreshAll();
     setRefreshing(false);
-  }, [fetchAll]);
+  }, [refreshAll]);
 
   const mentionQuery = (() => {
     const m = postText.match(/(?:^|\s)@([^\s]*)$/);
@@ -164,7 +187,7 @@ export default function DashboardScreen() {
             personId = existing.id;
             personName = existing.name;
           } else {
-            const created = await createEntity({
+            const created = await entitiesService.createEntity(user?.id, {
               name: firstNameWord,
               type: 'PERSON',
               description: 'Automatically created via post.',
@@ -179,7 +202,7 @@ export default function DashboardScreen() {
         const parsed = parseActivity(description, personName);
         const title = parsed.matched && parsed.title ? parsed.title : defaultTitle(description);
         Alert.alert('Posting', `Attaching to: ${personName || 'No entity'}`);
-        await createTimeline({
+        await timelinesService.createTimeline(userId, {
           title,
           description,
           eventDate: extractEventDate(text).toISOString(),
@@ -202,7 +225,7 @@ export default function DashboardScreen() {
             linkedIds.push(existing.id);
             mentions.push(`@${raw}`);
           } else {
-            const created = await createEntity({
+            const created = await entitiesService.createEntity(user?.id, {
               name: word,
               type: classifyEntityType(word),
               description: 'Automatically created via post.',
@@ -228,7 +251,7 @@ export default function DashboardScreen() {
         Alert.alert('Posting', `Attaching to: ${matchedNames.join(', ') || 'No entity'}`);
         const title = parsed.matched && parsed.title ? parsed.title : defaultTitle(description);
 
-        await createTimeline({
+        await timelinesService.createTimeline(userId, {
           title,
           description,
           eventDate: extractEventDate(text).toISOString(),
@@ -330,10 +353,10 @@ export default function DashboardScreen() {
         )}
 
         {/* Recent Diary */}
-        {data?.recentDiary && data.recentDiary.length > 0 && (
+        {recentDiary.length > 0 && (
           <>
             <Text style={[styles.sectionTitleBig, { marginTop: spacing.lg }]}>Recent Diary</Text>
-            {data.recentDiary.map((entry) => (
+            {recentDiary.map((entry) => (
               <Card key={entry.id} style={styles.diaryCard}>
                 <Pressable onPress={() => navigation.navigate('PreviewDiary', { entry })}>
                   <View style={styles.diaryRow}>

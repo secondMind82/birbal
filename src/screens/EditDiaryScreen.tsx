@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button, ErrorText, FormScreen, Input } from '../components/ui';
-import { createDiaryEntry, updateDiaryEntry } from '../api/apiService';
 import { getErrorMessage } from '../api/client';
 import type { RootStackParamList } from '../navigation/types';
 import type { DiaryEntry } from '../models/types';
+import { useAuthStore } from '../store/authStore';
+import * as diaryService from '../services/diaryService';
 import { colors, radii, spacing } from '../theme';
 
 const MOODS = ['HAPPY', 'CALM', 'EXCITED', 'GRATEFUL', 'SAD', 'ANXIOUS'];
@@ -28,6 +29,7 @@ function DiaryForm({ existing, onDone }: { existing?: DiaryEntry; onDone: () => 
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const userId = useAuthStore((s) => s.user?.id);
 
   const handleSave = async () => {
     setLoading(true);
@@ -40,9 +42,9 @@ function DiaryForm({ existing, onDone }: { existing?: DiaryEntry; onDone: () => 
         entryDate: `${entryDate}T00:00:00Z`,
       };
       if (existing) {
-        await updateDiaryEntry(existing.id, body);
+        await diaryService.updateEntry(userId, existing.id, body);
       } else {
-        await createDiaryEntry(body);
+        await diaryService.createEntry(userId, body);
       }
       onDone();
     } catch (e) {

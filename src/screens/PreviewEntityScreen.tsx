@@ -3,10 +3,12 @@ import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { Button, Card } from '../components/ui';
-import { deleteEntity, getTimelines } from '../api/apiService';
 import { getErrorMessage } from '../api/client';
 import type { RootStackParamList } from '../navigation/types';
 import type { Timeline } from '../models/types';
+import { useAuthStore } from '../store/authStore';
+import * as entitiesService from '../services/entitiesService';
+import * as timelinesService from '../services/timelinesService';
 import { colors, radii, spacing } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PreviewEntity'>;
@@ -23,6 +25,7 @@ const TYPE_ICONS: Record<string, string> = {
 
 export default function PreviewEntityScreen({ route, navigation }: Props) {
   const { entity } = route.params;
+  const userId = useAuthStore((s) => s.user?.id);
 
   const confirmDelete = () => {
     Alert.alert('Delete Entity', `"${entity.name}" will be deleted permanently.`, [
@@ -31,7 +34,7 @@ export default function PreviewEntityScreen({ route, navigation }: Props) {
         text: 'Delete',
         style: 'destructive',
         onPress: () => {
-          deleteEntity(entity.id)
+          entitiesService.deleteEntity(userId, entity.id)
             .then(() => navigation.popToTop())
             .catch((e) => Alert.alert('Error', getErrorMessage(e)));
         },
@@ -46,15 +49,16 @@ export default function PreviewEntityScreen({ route, navigation }: Props) {
   useFocusEffect(
     useCallback(() => {
       let active = true;
+      if (!userId) return () => { active = false; };
       setLoadingActivities(true);
-      getTimelines()
+      timelinesService.getTimelines(userId)
         .then((list) => active && setTimelines(list))
         .catch((e) => active && setActivityError(getErrorMessage(e)))
         .finally(() => active && setLoadingActivities(false));
       return () => {
         active = false;
       };
-    }, []),
+    }, [userId]),
   );
 
   const activities = useMemo(

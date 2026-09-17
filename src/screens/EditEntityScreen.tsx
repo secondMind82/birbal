@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button, ErrorText, FormScreen, Input } from '../components/ui';
-import { updateEntity } from '../api/apiService';
 import { getErrorMessage } from '../api/client';
 import type { RootStackParamList } from '../navigation/types';
+import { useAuthStore } from '../store/authStore';
+import * as entitiesService from '../services/entitiesService';
 import { colors, radii, spacing } from '../theme';
 
 const TYPES = ['PERSON', 'PLACE', 'ORGANIZATION', 'EVENT'];
@@ -13,6 +14,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'EditEntity'>;
 
 export default function EditEntityScreen({ route, navigation }: Props) {
   const { entity } = route.params;
+  const userId = useAuthStore((s) => s.user?.id);
   const [name, setName] = useState(entity.name);
   const [type, setType] = useState(entity.type);
   const [description, setDescription] = useState(entity.description ?? '');
@@ -23,7 +25,11 @@ export default function EditEntityScreen({ route, navigation }: Props) {
     setLoading(true);
     setError(null);
     try {
-      await updateEntity(entity.id, { name: name.trim(), type, description: description.trim() || null });
+      await entitiesService.updateEntity(userId, entity.id, {
+        name: name.trim(),
+        type,
+        description: description.trim() || null,
+      });
       navigation.goBack();
     } catch (e) {
       setError(getErrorMessage(e));

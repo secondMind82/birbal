@@ -2,15 +2,17 @@ import React from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button, Card } from '../components/ui';
-import { deleteDiaryEntry } from '../api/apiService';
 import { getErrorMessage } from '../api/client';
 import type { RootStackParamList } from '../navigation/types';
+import { useAuthStore } from '../store/authStore';
+import * as diaryService from '../services/diaryService';
 import { colors, spacing } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PreviewDiary'>;
 
 export default function PreviewDiaryScreen({ route, navigation }: Props) {
   const { entry } = route.params;
+  const userId = useAuthStore((s) => s.user?.id);
 
   const confirmDelete = () => {
     Alert.alert('Delete Entry', `"${entry.title}" will be deleted permanently.`, [
@@ -19,7 +21,7 @@ export default function PreviewDiaryScreen({ route, navigation }: Props) {
         text: 'Delete',
         style: 'destructive',
         onPress: () => {
-          deleteDiaryEntry(entry.id)
+          diaryService.deleteEntry(userId, entry.id)
             .then(() => navigation.popToTop())
             .catch((e) => Alert.alert('Error', getErrorMessage(e)));
         },

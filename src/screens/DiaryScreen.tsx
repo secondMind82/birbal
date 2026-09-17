@@ -11,10 +11,11 @@ import {
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import AppShell from '../components/AppShell';
-import { deleteDiaryEntry, getDiaryEntries } from '../api/apiService';
 import { getErrorMessage } from '../api/client';
 import { EmptyState } from '../components/ui';
 import type { DiaryEntry } from '../models/types';
+import { useAuthStore } from '../store/authStore';
+import * as diaryService from '../services/diaryService';
 import { colors, radii, spacing } from '../theme';
 
 type Nav = NativeStackNavigationProp<import('../navigation/types').RootStackParamList>;
@@ -33,21 +34,37 @@ export default function DiaryScreen() {
   const [entries, setEntries] = useState<DiaryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const userId = useAuthStore((s) => s.user?.id);
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      setLoading(true);
-      getDiaryEntries()
-        .then((list) =>
-          active &&
-          setEntries([...list].sort((a, b) => b.entryDate.localeCompare(a.entryDate))))
-        .catch((e) => active && setError(getErrorMessage(e)))
-        .finally(() => active && setLoading(false));
-      return () => {
-        active = false;
-      };
-    }, []),
+      if (!userId) return () => { active = false; };
+
+      (async () => {
+        try {
+          const cached = await diaryService.getCachedDiary(userId);
+          if (active) {
+            setEntries([...cached].sort((a, b) => b.entryDate.localeCompare(a.entryDate)));
+            setLoading(false);
+          }
+        } catch {
+          if (active) setLoading(false);
+          return;
+        }
+        try {
+          const fresh = await diaryService.getDiary(userId);
+          if (active) {
+            setEntries([...fresh].sort((a, b) => b.entryDate.localeCompare(a.entryDate)));
+            setError(null);
+          }
+        } catch (e) {
+          if (active) setError(getErrorMessage(e));
+        }
+      })();
+
+      return () => { active = false; };
+    }, [userId]),
   );
 
   const confirmDelete = (entry: DiaryEntry) => {
@@ -57,7 +74,7 @@ export default function DiaryScreen() {
         text: 'Delete',
         style: 'destructive',
         onPress: () => {
-          deleteDiaryEntry(entry.id)
+          diaryService.deleteEntry(userId, entry.id)
             .then(() => setEntries((prev) => prev.filter((e) => e.id !== entry.id)))
             .catch((e) => setError(getErrorMessage(e)));
         },

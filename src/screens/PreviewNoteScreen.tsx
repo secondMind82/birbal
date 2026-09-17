@@ -2,15 +2,17 @@ import React from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button, Card } from '../components/ui';
-import { deleteNote } from '../api/apiService';
 import { getErrorMessage } from '../api/client';
 import type { RootStackParamList } from '../navigation/types';
+import { useAuthStore } from '../store/authStore';
+import * as notesService from '../services/notesService';
 import { colors, spacing } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PreviewNote'>;
 
 export default function PreviewNoteScreen({ route, navigation }: Props) {
   const { note } = route.params;
+  const userId = useAuthStore((s) => s.user?.id);
 
   const confirmDelete = () => {
     Alert.alert('Delete Note', `"${note.title}" will be deleted permanently.`, [
@@ -19,7 +21,7 @@ export default function PreviewNoteScreen({ route, navigation }: Props) {
         text: 'Delete',
         style: 'destructive',
         onPress: () => {
-          deleteNote(note.id)
+          notesService.deleteNote(userId, note.id)
             .then(() => navigation.popToTop())
             .catch((e) => Alert.alert('Error', getErrorMessage(e)));
         },

@@ -12,10 +12,11 @@ import {
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import AppShell from '../components/AppShell';
-import { deleteNote, getNotes, updateNote } from '../api/apiService';
 import { getErrorMessage } from '../api/client';
 import { EmptyState } from '../components/ui';
 import type { Note } from '../models/types';
+import { useAuthStore } from '../store/authStore';
+import * as notesService from '../services/notesService';
 import { colors, radii, spacing } from '../theme';
 
 type Nav = NativeStackNavigationProp<import('../navigation/types').RootStackParamList>;
@@ -27,19 +28,38 @@ export default function NotesScreen() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [menuFor, setMenuFor] = useState<string | null>(null);
+  const userId = useAuthStore((s) => s.user?.id);
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      setLoading(true);
-      getNotes()
-        .then((n) => active && setNotes(n))
-        .catch((e) => active && setError(getErrorMessage(e)))
-        .finally(() => active && setLoading(false));
-      return () => {
-        active = false;
-      };
-    }, []),
+      if (!userId) return () => { active = false; };
+
+      (async () => {
+        try {
+          const cached = await notesService.getCachedNotes(userId);
+          if (active) {
+            setNotes(cached);
+            setLoading(false);
+          }
+        } catch {
+          if (active) setLoading(false);
+          return;
+        }
+        try {
+          const fresh = await notesService.getNotes(userId);
+          if (active) {
+            setNotes(fresh);
+            setError(null);
+          }
+        } catch (e) {
+          // no cached data available, so surface the refresh error
+          if (active) setError(getErrorMessage(e));
+        }
+      })();
+
+      return () => { active = false; };
+    }, [userId]),
   );
 
   const filtered = useMemo(() => {
@@ -60,11 +80,10 @@ export default function NotesScreen() {
       prev.map((n) => (n.id === note.id ? { ...n, pinned: !n.pinned } : n)),
     );
     try {
-      await updateNote(note.id, {
-        title: note.title,
-        content: note.content,
-        pinned: !note.pinned,
-      });
+      const updated = await notesService.togglePin(userId, note);
+      setNotes((prev) =>
+        prev.map((n) => (n.id === updated.id ? updated : n)),
+      );
     } catch (e) {
       setError(getErrorMessage(e));
       setNotes((prev) =>
@@ -81,7 +100,7 @@ export default function NotesScreen() {
         text: 'Delete',
         style: 'destructive',
         onPress: () => {
-          deleteNote(note.id)
+          notesService.deleteNote(userId, note.id)
             .then(() => setNotes((prev) => prev.filter((n) => n.id !== note.id)))
             .catch((e) => setError(getErrorMessage(e)));
         },

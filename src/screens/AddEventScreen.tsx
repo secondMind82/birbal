@@ -3,10 +3,12 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { Button, Chip, ErrorText, FormScreen, Input } from '../components/ui';
-import { createTimeline, getEntities, updateTimeline } from '../api/apiService';
 import { getErrorMessage } from '../api/client';
 import type { RootStackParamList } from '../navigation/types';
 import type { Entity, Timeline } from '../models/types';
+import { useAuthStore } from '../store/authStore';
+import * as timelinesService from '../services/timelinesService';
+import * as entitiesService from '../services/entitiesService';
 import { colors, spacing } from '../theme';
 
 type Props =
@@ -19,6 +21,7 @@ export default function AddEventScreen(props: Props) {
 }
 
 function EventForm({ existing, onDone }: { existing?: Timeline; onDone: () => void }) {
+  const userId = useAuthStore((s) => s.user?.id);
   const [title, setTitle] = useState(existing?.title ?? '');
   const [description, setDescription] = useState(existing?.description ?? '');
   const [eventDate, setEventDate] = useState(
@@ -35,13 +38,14 @@ function EventForm({ existing, onDone }: { existing?: Timeline; onDone: () => vo
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      getEntities()
+      if (!userId) return () => { active = false; };
+      entitiesService.getEntities(userId)
         .then((list) => active && setEntities(list))
         .catch(() => undefined);
       return () => {
         active = false;
       };
-    }, []),
+    }, [userId]),
   );
 
   const toggleLink = (id: string) => {
@@ -62,9 +66,9 @@ function EventForm({ existing, onDone }: { existing?: Timeline; onDone: () => vo
         showOnCalendar,
       };
       if (existing) {
-        await updateTimeline(existing.id, body);
+        await timelinesService.updateTimeline(userId, existing.id, body);
       } else {
-        await createTimeline(body);
+        await timelinesService.createTimeline(userId, body);
       }
       onDone();
     } catch (e) {

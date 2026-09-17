@@ -2,9 +2,10 @@ import React from 'react';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button, Chip } from '../components/ui';
-import { deleteTimeline } from '../api/apiService';
 import { getErrorMessage } from '../api/client';
 import type { RootStackParamList } from '../navigation/types';
+import { useAuthStore } from '../store/authStore';
+import * as timelinesService from '../services/timelinesService';
 import { colors, radii, spacing } from '../theme';
 import type { DetailRow } from '../utils/activityParser';
 import { activityEmoji, formatRelativeTime, parseActivity } from '../utils/activityParser';
@@ -13,6 +14,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'PreviewTimeline'>;
 
 export default function PreviewTimelineScreen({ route, navigation }: Props) {
   const { timeline } = route.params;
+  const userId = useAuthStore((s) => s.user?.id);
 
   const confirmDelete = () => {
     Alert.alert('Delete Event', `"${timeline.title}" will be deleted permanently.`, [
@@ -21,7 +23,7 @@ export default function PreviewTimelineScreen({ route, navigation }: Props) {
         text: 'Delete',
         style: 'destructive',
         onPress: () => {
-          deleteTimeline(timeline.id)
+          timelinesService.deleteTimeline(userId, timeline.id)
             .then(() => navigation.popToTop())
             .catch((e) => Alert.alert('Error', getErrorMessage(e)));
         },

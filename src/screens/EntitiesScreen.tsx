@@ -12,10 +12,11 @@ import {
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import AppShell from '../components/AppShell';
-import { deleteEntity, getEntities } from '../api/apiService';
 import { getErrorMessage } from '../api/client';
 import { EmptyState } from '../components/ui';
 import type { Entity } from '../models/types';
+import { useAuthStore } from '../store/authStore';
+import * as entitiesService from '../services/entitiesService';
 import { colors, radii, spacing } from '../theme';
 
 type Nav = NativeStackNavigationProp<import('../navigation/types').RootStackParamList>;
@@ -32,6 +33,7 @@ const TYPE_ICONS: Record<string, string> = {
 
 export default function EntitiesScreen() {
   const navigation = useNavigation<Nav>();
+  const userId = useAuthStore((s) => s.user?.id);
   const [entities, setEntities] = useState<Entity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,15 +42,46 @@ export default function EntitiesScreen() {
   useFocusEffect(
     useCallback(() => {
       let active = true;
-      setLoading(true);
-      getEntities()
-        .then((list) => active && setEntities(list))
-        .catch((e) => active && setError(getErrorMessage(e)))
-        .finally(() => active && setLoading(false));
+      if (!userId) {
+        setLoading(false);
+        setError('User is not authenticated');
+        return () => {
+          active = false;
+        };
+      }
+
+      let hadCached = false;
+
+      (async () => {
+        try {
+          const cached = await entitiesService.getCachedEntities(userId);
+          hadCached = cached.length > 0;
+          if (active) {
+            setEntities(cached);
+            setLoading(false);
+          }
+        } catch {
+          if (active) setLoading(false);
+          return;
+        }
+
+        try {
+          const fresh = await entitiesService.getEntities(userId);
+          if (active) {
+            setEntities(fresh);
+            setError(null);
+          }
+        } catch (e) {
+          if (active && !hadCached) {
+            setError(getErrorMessage(e));
+          }
+        }
+      })();
+
       return () => {
         active = false;
       };
-    }, []),
+    }, [userId]),
   );
 
   const peopleCount = useMemo(
@@ -76,7 +109,7 @@ export default function EntitiesScreen() {
         text: 'Delete',
         style: 'destructive',
         onPress: () => {
-          deleteEntity(entity.id)
+          entitiesService.deleteEntity(userId, entity.id)
             .then(() => setEntities((prev) => prev.filter((e) => e.id !== entity.id)))
             .catch((e) => setError(getErrorMessage(e)));
         },
