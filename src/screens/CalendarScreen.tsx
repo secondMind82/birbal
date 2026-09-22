@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   TextInput,
   View,
@@ -15,13 +14,16 @@ import { getErrorMessage } from '../api/client';
 import type { Timeline } from '../models/types';
 import { useAuthStore } from '../store/authStore';
 import * as timelinesService from '../services/timelinesService';
-import { colors, radii, spacing } from '../theme';
+import { radii, spacing, useAppStyles, useAppTheme } from '../theme';
+import type { BirbalTheme } from '../theme';
 
 type Nav = NativeStackNavigationProp<import('../navigation/types').RootStackParamList>;
 
 const WEEK_DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export default function CalendarScreen() {
+  const t = useAppTheme();
+  const styles = useAppStyles(makeStyles);
   const navigation = useNavigation<Nav>();
   const userId = useAuthStore((s) => s.user?.id);
   const [events, setEvents] = useState<Timeline[]>([]);
@@ -151,7 +153,7 @@ export default function CalendarScreen() {
     return (
       <AppShell title="Calendar">
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.accent} />
+          <ActivityIndicator size="large" color={t.accent} />
         </View>
       </AppShell>
     );
@@ -165,7 +167,7 @@ export default function CalendarScreen() {
           value={search}
           onChangeText={setSearch}
           placeholder="Search events in calendar..."
-          placeholderTextColor={colors.textSecondary}
+          placeholderTextColor={t.textSecondary}
         />
 
         <View style={styles.calendarCard}>
@@ -225,7 +227,7 @@ export default function CalendarScreen() {
                         </Text>
                       </View>
                       {hasEvents ? (
-                        <View style={[styles.dot, isSelected && { backgroundColor: colors.accent }]} />
+                        <View style={[styles.dot, isSelected && { backgroundColor: t.accent }]} />
                       ) : null}
                     </Pressable>
                   );
@@ -271,6 +273,7 @@ export default function CalendarScreen() {
 }
 
 function EventCard({ event, onPress }: { event: Timeline; onPress: () => void }) {
+  const styles = useAppStyles(makeStyles);
   return (
     <Pressable
       style={({ pressed }) => [styles.eventCard, pressed && { opacity: 0.7 }]}
@@ -297,25 +300,25 @@ function formatEventDate(dateStr: string): string {
   });
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: BirbalTheme) => ({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   container: { padding: spacing.lg },
   search: {
-    backgroundColor: '#fff',
+    backgroundColor: t.surface,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.border,
     borderRadius: radii.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: 10,
     fontSize: 14,
-    color: colors.text,
+    color: t.text,
     marginBottom: spacing.md,
   },
   calendarCard: {
-    backgroundColor: '#fff',
+    backgroundColor: t.surface,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.border,
     padding: spacing.md,
   },
   monthRow: {
@@ -324,22 +327,22 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: spacing.md,
   },
-  navArrow: { fontSize: 26, color: colors.accent, paddingHorizontal: spacing.md, fontWeight: '700' },
+  navArrow: { fontSize: 26, color: t.accent, paddingHorizontal: spacing.md, fontWeight: '700' },
   todayBtn: {
-    backgroundColor: colors.accent,
+    backgroundColor: t.accent,
     borderRadius: radii.full,
     paddingHorizontal: spacing.md,
     paddingVertical: 4,
   },
-  todayBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  monthLabel: { fontSize: 16, fontWeight: '800', color: colors.text },
+  todayBtnText: { color: t.onAccent, fontSize: 12, fontWeight: '700' },
+  monthLabel: { fontSize: 16, fontWeight: '800', color: t.text },
   weekHeader: { flexDirection: 'row', marginBottom: 4 },
   weekDay: {
     flex: 1,
     textAlign: 'center',
     fontSize: 11,
     fontWeight: '700',
-    color: colors.textSecondary,
+    color: t.textSecondary,
   },
   grid: { },
   gridRow: { flexDirection: 'row' },
@@ -351,25 +354,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  daySelected: { backgroundColor: colors.accent },
-  dayToday: { borderWidth: 1.5, borderColor: colors.accent },
-  dayText: { fontSize: 13, color: colors.text },
-  dayTextToday: { color: colors.accent, fontWeight: '700' },
-  dayTextSelected: { color: '#fff', fontWeight: '700' },
-  dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.danger, marginTop: 2 },
+  daySelected: { backgroundColor: t.accent },
+  dayToday: { borderWidth: 1.5, borderColor: t.accent },
+  dayText: { fontSize: 13, color: t.text },
+  dayTextToday: { color: t.accent, fontWeight: '700' },
+  dayTextSelected: { color: t.onAccent, fontWeight: '700' },
+  dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: t.danger, marginTop: 2 },
   sectionTitle: { fontSize: 16, fontWeight: '800', marginBottom: spacing.sm },
-  emptySmall: { color: colors.textSecondary, fontSize: 13, marginBottom: spacing.sm },
-  empty: { color: colors.textSecondary, textAlign: 'center', marginTop: spacing.xl },
+  emptySmall: { color: t.textSecondary, fontSize: 13, marginBottom: spacing.sm },
+  empty: { color: t.textSecondary, textAlign: 'center', marginTop: spacing.xl },
   eventCard: {
-    backgroundColor: '#fff',
+    backgroundColor: t.surface,
     borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.border,
     padding: spacing.md,
     marginBottom: spacing.sm,
   },
   eventInfo: { flex: 1 },
-  eventTitle: { fontSize: 15, fontWeight: '700', color: colors.text },
-  eventDesc: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
-  eventDate: { fontSize: 12, color: colors.accent, fontWeight: '600', marginTop: 6 },
-});
+  eventTitle: { fontSize: 15, fontWeight: '700', color: t.text },
+  eventDesc: { fontSize: 13, color: t.textSecondary, marginTop: 2 },
+  eventDate: { fontSize: 12, color: t.accent, fontWeight: '600', marginTop: 6 },
+}) as const;

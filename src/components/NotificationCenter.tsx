@@ -2,7 +2,9 @@ import React from 'react';
 import { ActivityIndicator, FlatList, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { Timeline } from '../models/types';
 import { useNotificationStore } from '../store/notificationStore';
-import { colors, radii, spacing } from '../theme';
+import { radii, spacing } from '../theme';
+import { useAppStyles, useAppTheme } from '../theme';
+import type { BirbalTheme } from '../theme';
 
 export function cleanEventTitle(title: string): string {
   return title.replace(/@/g, '').trim() || 'Event Details';
@@ -23,6 +25,8 @@ export default function NotificationCenter({
 }) {
   const reminders = useNotificationStore((s) => s.reminders);
   const loading = useNotificationStore((s) => s.loading);
+  const theme = useAppTheme();
+  const styles = useAppStyles((c) => notificationStyles(c));
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -31,12 +35,14 @@ export default function NotificationCenter({
         <View style={styles.sheet}>
           <View style={styles.handle} />
           <View style={styles.headerRow}>
-            <Text style={styles.headerIcon}>🔔</Text>
+            <View style={styles.headerIconWrap}>
+              <Text style={styles.headerIcon}>🔔</Text>
+            </View>
             <Text style={styles.headerTitle}>Event Reminders</Text>
           </View>
 
           {loading ? (
-            <ActivityIndicator color={colors.accent} style={{ marginVertical: 32 }} />
+            <ActivityIndicator color={theme.accent} style={{ marginVertical: 32 }} />
           ) : reminders.length === 0 ? (
             <Text style={styles.empty}>No upcoming events for today.</Text>
           ) : (
@@ -65,47 +71,68 @@ export default function NotificationCenter({
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-  sheet: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: radii.lg,
-    borderTopRightRadius: radii.lg,
-    paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xxl,
-    minHeight: 220,
-  },
-  handle: {
-    alignSelf: 'center',
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.border,
-    marginTop: spacing.sm + 2,
-    marginBottom: spacing.md,
-  },
-  headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.lg },
-  headerIcon: { fontSize: 20, marginRight: spacing.sm },
-  headerTitle: { fontSize: 17, fontWeight: '800', color: colors.text },
-  empty: { textAlign: 'center', color: colors.textSecondary, paddingVertical: 40 },
-  reminderCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    backgroundColor: colors.surfaceVariant,
-    borderRadius: radii.sm,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  iconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#EEF2FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  title: { fontWeight: '700', fontSize: 14, color: colors.text },
-  subtitle: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-});
+const notificationStyles = (c: BirbalTheme) =>
+  StyleSheet.create({
+    flex: { flex: 1 },
+    backdrop: {
+      flex: 1,
+      backgroundColor: c.scrim,
+      justifyContent: 'flex-end',
+    },
+    sheet: {
+      backgroundColor: c.surfaceElevated,
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.xxl,
+      minHeight: 220,
+      shadowColor: '#000',
+      shadowOpacity: 0.2,
+      shadowRadius: 24,
+      shadowOffset: { width: 0, height: -6 },
+      elevation: 16,
+    },
+    handle: {
+      alignSelf: 'center',
+      width: 40,
+      height: 5,
+      borderRadius: 3,
+      backgroundColor: c.border,
+      marginTop: spacing.sm + 2,
+      marginBottom: spacing.md,
+    },
+    headerRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.lg },
+    headerIconWrap: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      backgroundColor: c.accentSoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: spacing.sm,
+    },
+    headerIcon: { fontSize: 18 },
+    headerTitle: { fontSize: 17, fontWeight: '800', color: c.text },
+    empty: { textAlign: 'center', color: c.textSecondary, paddingVertical: 40 },
+    reminderCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      backgroundColor: c.surfaceVariant,
+      borderRadius: radii.md,
+      padding: spacing.md,
+      marginBottom: spacing.sm,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: c.border,
+    },
+    iconBox: {
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      backgroundColor: c.accentSoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    title: { fontWeight: '700', fontSize: 14, color: c.text },
+    subtitle: { fontSize: 12, color: c.textSecondary, marginTop: 2 },
+  });

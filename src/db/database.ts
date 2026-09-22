@@ -30,3 +30,11 @@ export async function closeDatabase(): Promise<void> {
     databasePromise = null;
   }
 }
+
+let writeQueue: Promise<unknown> = Promise.resolve();
+
+export function serializeWrite<T>(fn: () => Promise<T>): Promise<T> {
+  const run = writeQueue.then(fn, fn);
+  writeQueue = run.catch(() => {});
+  return run;
+}

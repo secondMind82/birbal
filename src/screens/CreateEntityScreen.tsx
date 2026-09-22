@@ -1,18 +1,21 @@
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button, ErrorText, FormScreen, Input } from '../components/ui';
 import { getErrorMessage } from '../api/client';
 import type { RootStackParamList } from '../navigation/types';
 import { useAuthStore } from '../store/authStore';
 import * as entitiesService from '../services/entitiesService';
-import { colors, radii, spacing } from '../theme';
+import { radii, spacing, useAppStyles, useAppTheme } from '../theme';
+import type { BirbalTheme } from '../theme';
 
 const TYPES = ['PERSON', 'PLACE', 'ORGANIZATION', 'EVENT'];
 
 type Props = NativeStackScreenProps<RootStackParamList, 'NewEntity'>;
 
 export default function CreateEntityScreen({ navigation }: Props) {
+  const t = useAppTheme();
+  const styles = useAppStyles(makeStyles);
   const userId = useAuthStore((s) => s.user?.id);
   const [name, setName] = useState('');
   const [type, setType] = useState('PERSON');
@@ -78,6 +81,7 @@ function TypeChip({
   selected: boolean;
   onPress: () => void;
 }) {
+  const styles = useAppStyles(makeStyles);
   return (
     <Pressable
       onPress={onPress}
@@ -90,8 +94,8 @@ function TypeChip({
   );
 }
 
-const styles = StyleSheet.create({
-  label: { fontSize: 13, fontWeight: '600', color: colors.text, marginBottom: spacing.sm },
+const makeStyles = (t: BirbalTheme) => ({
+  label: { fontSize: 13, fontWeight: '600', color: t.text, marginBottom: spacing.sm },
   typesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.lg },
   typeChip: {
     paddingHorizontal: 14,
@@ -99,8 +103,8 @@ const styles = StyleSheet.create({
     borderRadius: radii.full,
     borderWidth: 1,
   },
-  typeChipSelected: { backgroundColor: colors.accent, borderColor: colors.accent },
-  typeChipUnselected: { backgroundColor: '#fff', borderColor: colors.border },
-  typeChipText: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
-  typeChipTextSelected: { color: '#fff' },
-});
+  typeChipSelected: { backgroundColor: t.accent, borderColor: t.accent },
+  typeChipUnselected: { backgroundColor: t.surface, borderColor: t.border },
+  typeChipText: { fontSize: 13, fontWeight: '600', color: t.textSecondary },
+  typeChipTextSelected: { color: t.onAccent },
+}) as const;

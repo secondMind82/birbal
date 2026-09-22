@@ -133,3 +133,31 @@ export interface DashboardResponse {
 export interface SimpleResponse {
   message: string;
 }
+
+// ─── Backup & Restore ────────────────────────────────────────────────────────
+// Logical, versioned snapshot of a user's SQLite productivity data. The payload
+// reuses the existing model shapes (no invented fields); timestamps keep the ISO
+// text format the repositories already write to SQLite.
+
+export interface BackupPayload {
+  backupVersion: number;
+  createdAt: string;
+  updatedAt: string;
+  userId: string;
+  notes: Note[];
+  diaryEntries: DiaryEntry[];
+  entities: Entity[];
+  timelines: Timeline[];
+}
+
+export interface BackupMetadata {
+  id: string;
+  backupVersion: number;
+  sizeBytes: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BackupInfo extends BackupMetadata {
+  payload?: BackupPayload;
+}

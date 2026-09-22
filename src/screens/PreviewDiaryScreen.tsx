@@ -1,17 +1,20 @@
 import React from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button, Card } from '../components/ui';
 import { getErrorMessage } from '../api/client';
 import type { RootStackParamList } from '../navigation/types';
 import { useAuthStore } from '../store/authStore';
 import * as diaryService from '../services/diaryService';
-import { colors, spacing } from '../theme';
+import { spacing, useAppStyles, useAppTheme } from '../theme';
+import type { BirbalTheme } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PreviewDiary'>;
 
 export default function PreviewDiaryScreen({ route, navigation }: Props) {
   const { entry } = route.params;
+  const t = useAppTheme();
+  const styles = useAppStyles(makeStyles);
   const userId = useAuthStore((s) => s.user?.id);
 
   const confirmDelete = () => {
@@ -44,10 +47,10 @@ export default function PreviewDiaryScreen({ route, navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: BirbalTheme) => ({
   container: { padding: spacing.lg, paddingBottom: 40, gap: spacing.md },
-  mood: { fontSize: 12, fontWeight: '700', color: colors.accent, textTransform: 'uppercase' },
-  date: { fontSize: 12, color: colors.textSecondary, marginTop: 4 },
-  title: { fontSize: 22, fontWeight: '800', color: colors.text, marginTop: spacing.md },
-  content: { fontSize: 15, lineHeight: 24, color: colors.text, marginTop: spacing.md },
-});
+  mood: { fontSize: 12, fontWeight: '700', color: t.accent, textTransform: 'uppercase' },
+  date: { fontSize: 12, color: t.textSecondary, marginTop: 4 },
+  title: { fontSize: 22, fontWeight: '800', color: t.text, marginTop: spacing.md },
+  content: { fontSize: 15, lineHeight: 24, color: t.text, marginTop: spacing.md },
+} as const);

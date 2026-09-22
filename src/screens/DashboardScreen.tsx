@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
 import AppShell from '../components/AppShell';
 import { getErrorMessage } from '../api/client';
 import { Card } from '../components/ui';
@@ -27,7 +28,8 @@ import {
   parseActivity,
   sanitizeName,
 } from '../utils/activityParser';
-import { colors, radii, spacing } from '../theme';
+import { radii, spacing, useAppStyles, useAppTheme } from '../theme';
+import type { BirbalTheme } from '../theme';
 
 type Nav = NativeStackNavigationProp<import('../navigation/types').RootStackParamList>;
 
@@ -82,6 +84,8 @@ function findEntityByName(rawName: string, entities: Entity[]): Entity | undefin
 }
 
 export default function DashboardScreen() {
+  const t = useAppTheme();
+  const styles = useAppStyles(makeStyles);
   const navigation = useNavigation<Nav>();
   const user = useAuthStore((s) => s.user);
   const userId = useAuthStore((s) => s.user?.id);
@@ -107,6 +111,31 @@ export default function DashboardScreen() {
       [...all].sort((a, b) => b.eventDate.localeCompare(a.eventDate)).slice(0, 5),
     );
   }, []);
+
+  const recentGroups = useMemo<{ groups: TimelineGroup[]; strays: Timeline[] }>(() => {
+    const map = new Map<string, TimelineGroup>();
+    const strays: Timeline[] = [];
+    for (const t of recentTimelines) {
+      const link = (t.entities ?? []).find((l) => l.entity?.type === 'PERSON') ?? (t.entities ?? [])[0];
+      const entity = link?.entity;
+      if (!entity) {
+        strays.push(t);
+        continue;
+      }
+      const existing = map.get(entity.id);
+      if (existing) {
+        existing.entries.push(t);
+      } else {
+        map.set(entity.id, { entity, entries: [t] });
+      }
+    }
+    const groups = [...map.values()].map((g) => ({
+      ...g,
+      entries: [...g.entries].sort((a, b) => b.eventDate.localeCompare(a.eventDate)),
+    }));
+    groups.sort((a, b) => b.entries[0].eventDate.localeCompare(a.entries[0].eventDate));
+    return { groups, strays };
+  }, [recentTimelines]);
 
   const fetchAll = useCallback(async () => {
     if (!userId) return;
@@ -177,7 +206,7 @@ export default function DashboardScreen() {
     setLoading(true);
     setError(null);
     try {
-      if (!text.includes('@')) {
+      if (!text.includes('@') && !text.includes('#')) {
         const firstNameWord = sanitizeName(text.split(/\s+/)[0] || '');
         let personId: string | null = null;
         let personName = firstNameWord;
@@ -201,7 +230,6 @@ export default function DashboardScreen() {
         const description = text;
         const parsed = parseActivity(description, personName);
         const title = parsed.matched && parsed.title ? parsed.title : defaultTitle(description);
-        Alert.alert('Posting', `Attaching to: ${personName || 'No entity'}`);
         await timelinesService.createTimeline(userId, {
           title,
           description,
@@ -236,6 +264,27 @@ export default function DashboardScreen() {
           }
         }
 
+        // #place → PLACE entity (mirrors @mention behavior; original text is kept as-is)
+        const placeMatches = Array.from(text.matchAll(/#([^\s@.,!?:;\n\r]+)/g));
+        for (const m of placeMatches) {
+          const raw = m[1] ?? '';
+          const word = sanitizeName(raw);
+          if (!word) continue;
+
+          const existing = findEntityByName(word, entities);
+          if (existing) {
+            linkedIds.push(existing.id);
+          } else {
+            const created = await entitiesService.createEntity(user?.id, {
+              name: word,
+              type: 'PLACE',
+              description: 'Automatically created via post.',
+            });
+            linkedIds.push(created.id);
+            setEntities((prev) => [...prev, created]);
+          }
+        }
+
         const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
 
         let description = text;
@@ -247,8 +296,6 @@ export default function DashboardScreen() {
         }
 
         const parsed = parseActivity(description, mentions[0]?.slice(1));
-        const matchedNames = [...new Set(linkedIds.map((id) => entities.find((e) => e.id === id)?.name).filter(Boolean))];
-        Alert.alert('Posting', `Attaching to: ${matchedNames.join(', ') || 'No entity'}`);
         const title = parsed.matched && parsed.title ? parsed.title : defaultTitle(description);
 
         await timelinesService.createTimeline(userId, {
@@ -274,11 +321,35 @@ export default function DashboardScreen() {
         style={styles.flex}
         contentContainerStyle={styles.container}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}>
-        <Text style={styles.greeting}>
-          {greeting.text} {greeting.emoji}
-        </Text>
-        <Text style={styles.fullName}>{firstName || 'User'}</Text>
-        <Text style={styles.subtitle}>Ready to capture some memories today?</Text>
+        {/* Premium greeting hero */}
+        <View style={styles.hero}>
+          <LinearGradient
+            colors={[t.accentSoft, 'rgba(250, 247, 241, 0)']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+            style={styles.heroGradient}
+          />
+          <View style={styles.heroGlow} />
+          <View style={styles.heroSun}>
+            <View style={styles.heroSunCore} />
+          </View>
+          <View style={styles.heroArc} />
+          <View style={styles.heroRow}>
+            <View style={styles.heroText}>
+              <Text style={styles.heroOverline}>
+                {greeting.text.toUpperCase()}  {greeting.emoji}
+              </Text>
+              <Text style={styles.heroTitle} numberOfLines={2}>
+                Hey, <Text style={styles.heroAccent}>{firstName || 'User'}</Text>
+              </Text>
+            </View>
+            <View style={styles.heroAvatar}>
+              <Text style={styles.heroAvatarText}>
+                {firstName ? firstName[0].toUpperCase() : 'U'}
+              </Text>
+            </View>
+          </View>
+        </View>
 
         {/* Capture-a-moment post box */}
         <Card style={styles.postCard}>
@@ -290,7 +361,7 @@ export default function DashboardScreen() {
               value={postText}
               onChangeText={setPostText}
               placeholder="What's on your mind? Use @ to link people"
-              placeholderTextColor={colors.textSecondary}
+              placeholderTextColor={t.textSecondary}
               multiline
             />
             {suggestions.length > 0 && (
@@ -326,16 +397,6 @@ export default function DashboardScreen() {
 
         {error ? <Text style={styles.error}>Error: {error}</Text> : null}
 
-        {/* Quick Actions */}
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
-        <View style={styles.quickRow}>
-          <QuickAction icon="👤" label="Add Entity" sub="Add contacts" onPress={() => navigation.navigate('NewEntity')} />
-          <QuickAction icon="📅" label="Add Event" sub="Schedule important" onPress={() => navigation.navigate('AddEvent')} />
-        </View>
-        <QuickAction icon="📝" label="Add Note" sub="Capture an idea" onPress={() => navigation.navigate('NewNote')} wide />
-
-        {/* Recent Entities removed — showing Recent Timeline only */}
-
         {/* Recent Timeline */}
         <View style={[styles.sectionHeader]}>
           <Text style={styles.sectionTitleBig}>Recent Timeline</Text>
@@ -343,13 +404,22 @@ export default function DashboardScreen() {
         {recentTimelines.length === 0 ? (
           <Text style={styles.emptyLine}>Your timeline is empty. Start posting!</Text>
         ) : (
-          recentTimelines.map((event) => (
-            <TimelinePreviewCard
-              key={event.id}
-              event={event}
-              onClick={() => navigation.navigate('PreviewTimeline', { timeline: event })}
-            />
-          ))
+          <>
+            {recentGroups.groups.map((group) => (
+              <TimelineGroupCard
+                key={group.entity.id}
+                group={group}
+                onClick={() => navigation.navigate('PreviewEntity', { entity: group.entity })}
+              />
+            ))}
+            {recentGroups.strays.map((event) => (
+              <TimelinePreviewCard
+                key={event.id}
+                event={event}
+                onClick={() => navigation.navigate('PreviewTimeline', { timeline: event })}
+              />
+            ))}
+          </>
         )}
 
         {/* Recent Diary */}
@@ -378,31 +448,8 @@ export default function DashboardScreen() {
   );
 }
 
-function QuickAction({
-  icon,
-  label,
-  sub,
-  onPress,
-  wide = false,
-}: {
-  icon: string;
-  label: string;
-  sub?: string;
-  onPress: () => void;
-  wide?: boolean;
-}) {
-  return (
-    <Pressable
-      style={({ pressed }) => [styles.quickAction, wide && { width: '100%' }, pressed && { opacity: 0.7 }]}
-      onPress={onPress}>
-      <Text style={styles.quickIcon}>{icon}</Text>
-      <Text style={styles.quickLabel}>{label}</Text>
-      {sub ? <Text style={styles.quickSub}>{sub}</Text> : null}
-    </Pressable>
-  );
-}
-
 function TimelinePreviewCard({ event, onClick }: { event: Timeline; onClick: () => void }) {
+  const styles = useAppStyles(makeStyles);
   const personName =
     event.entities?.find((l) => l.entity.type === 'PERSON')?.entity.name ??
     (event.description ?? '').trim().split(/\s+/)[0] ??
@@ -424,17 +471,74 @@ function TimelinePreviewCard({ event, onClick }: { event: Timeline; onClick: () 
           </View>
         </View>
 
-        <View style={styles.feedTitleRowCompact}>
-          <Text style={styles.feedTitleCompact} numberOfLines={1}>
-            {parsed.title || parsed.message || (event.description ?? '').split('\n')[0]
-              || event.title}
-          </Text>
-          <Text style={styles.feedMetaCompact}>{parsed.details[0]?.emoji ?? ''}</Text>
+        <View style={styles.previewBody}>
+          <View style={styles.feedTitleRowCompact}>
+            <Text style={styles.feedTitleCompact} numberOfLines={1}>
+              {parsed.title || parsed.message || (event.description ?? '').split('\n')[0]
+                || event.title}
+            </Text>
+            <Text style={styles.feedMetaCompact}>{parsed.details[0]?.emoji ?? ''}</Text>
+          </View>
+
+          {parsed.message ? (
+            <Text style={styles.feedMessageCompact} numberOfLines={2}>{parsed.message}</Text>
+          ) : null}
+        </View>
+      </Pressable>
+    </Card>
+  );
+}
+
+type TimelineGroup = { entity: Entity; entries: Timeline[] };
+
+function TimelineGroupCard({
+  group,
+  onClick,
+}: {
+  group: TimelineGroup;
+  onClick: () => void;
+}) {
+  const styles = useAppStyles(makeStyles);
+  const letter = group.entity.name ? group.entity.name[0].toUpperCase() : '?';
+  const latest = group.entries[0];
+  const timeLabel = formatRelativeTime(latest?.createdAt ?? latest?.eventDate ?? '');
+
+  return (
+    <Card style={styles.timelineCardCompact}>
+      <Pressable onPress={onClick}>
+        <View style={styles.feedHeaderCompact}>
+          <View style={styles.feedAvatarCompact}>
+            <Text style={styles.feedAvatarText}>{letter}</Text>
+          </View>
+          <View style={styles.feedHeaderTextCompact}>
+            <Text style={styles.feedName}>{group.entity.name}</Text>
+            <Text style={styles.feedMeta}>
+              {timeLabel} · {group.entries.length} {group.entries.length === 1 ? 'entry' : 'entries'}
+            </Text>
+          </View>
         </View>
 
-        {parsed.message ? (
-          <Text style={styles.feedMessageCompact} numberOfLines={2}>{parsed.message}</Text>
-        ) : null}
+        {group.entries.map((event) => {
+          const parsed = parseActivity(event.description ?? '');
+          return (
+            <View key={event.id} style={styles.groupEntry}>
+              <View style={styles.feedTitleRowCompact}>
+                <Text style={styles.feedTitleCompact} numberOfLines={1}>
+                  {parsed.title || parsed.message || (event.description ?? '').split('\n')[0]
+                    || event.title}
+                </Text>
+                <Text style={styles.feedMetaCompact}>{parsed.details[0]?.emoji ?? ''}</Text>
+              </View>
+              {parsed.message ? (
+                <Text style={styles.feedMessageCompact} numberOfLines={1}>{parsed.message}</Text>
+              ) : null}
+            </View>
+          );
+        })}
+
+        <View style={styles.viewAllRow}>
+          <Text style={styles.viewAllText}>View all →</Text>
+        </View>
       </Pressable>
     </Card>
   );
@@ -442,30 +546,106 @@ function TimelinePreviewCard({ event, onClick }: { event: Timeline; onClick: () 
 
 
 
-const styles = StyleSheet.create({
+const makeStyles = (t: BirbalTheme) => ({
   flex: { flex: 1 },
-  container: { padding: spacing.xl, backgroundColor: '#F9FAFB' },
-  greeting: { fontSize: 15, fontWeight: '600', color: colors.textSecondary },
-  fullName: { fontSize: 24, fontWeight: '800', color: colors.text, marginTop: 2 },
-  subtitle: { fontSize: 13, color: colors.textSecondary, marginTop: 4, marginBottom: spacing.lg },
+  container: { padding: spacing.xl, backgroundColor: t.surfaceVariant },
+  hero: { position: 'relative', marginBottom: spacing.sm, overflow: 'hidden' },
+  heroGradient: { position: 'absolute', top: -32, left: -24, right: -24, bottom: 0 },
+  heroGlow: {
+    position: 'absolute',
+    top: -28,
+    right: -30,
+    width: 184,
+    height: 184,
+    borderRadius: radii.full,
+    backgroundColor: t.accentSoft,
+    opacity: 0.9,
+  },
+  heroSun: {
+    position: 'absolute',
+    top: -8,
+    right: 96,
+    width: 62,
+    height: 62,
+    borderRadius: radii.full,
+    backgroundColor: 'rgba(224, 184, 132, 0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroSunCore: {
+    width: 16,
+    height: 16,
+    borderRadius: radii.full,
+    backgroundColor: 'rgba(210, 170, 105, 0.55)',
+  },
+  heroArc: {
+    position: 'absolute',
+    bottom: 8,
+    right: 10,
+    width: 92,
+    height: 46,
+    borderTopWidth: 2,
+    borderColor: 'rgba(192, 163, 122, 0.32)',
+    borderTopLeftRadius: 46,
+    borderTopRightRadius: 46,
+  },
+  heroRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+  },
+  heroText: { flex: 1, paddingRight: spacing.md },
+  heroOverline: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.4,
+    color: t.textSecondary,
+    textTransform: 'uppercase',
+  },
+  heroTitle: {
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+    color: t.text,
+    marginTop: spacing.sm,
+  },
+  heroAccent: { color: t.accent, fontWeight: '800' },
+  heroAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: radii.full,
+    backgroundColor: t.surface,
+    borderWidth: 1.5,
+    borderColor: t.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#1C1530',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
+  heroAvatarText: { fontSize: 17, fontWeight: '700', color: t.accent },
   postCard: { borderRadius: radii.lg },
-  postHeading: { fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: spacing.md },
+  postHeading: { fontSize: 16, fontWeight: '700', color: t.text, marginBottom: spacing.md },
   postInput: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: t.surfaceVariant,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: t.border,
     borderRadius: radii.md,
-    padding: spacing.md,
-    minHeight: 90,
-    textAlignVertical: 'top',
-    color: colors.text,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    minHeight: 44,
+    textAlignVertical: 'center',
+    color: t.text,
     fontSize: 14,
   },
   suggestions: {
-    backgroundColor: '#fff',
+    backgroundColor: t.surface,
     borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: '#F3F4F6',
+    borderColor: t.surfaceVariant,
     marginTop: 4,
     elevation: 4,
   },
@@ -474,81 +654,72 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#F9FAFB',
+    borderBottomColor: t.surfaceVariant,
   },
-  suggestionName: { fontWeight: '600', color: '#111827', fontSize: 14 },
-  suggestionType: { marginLeft: 'auto', fontSize: 11, color: colors.accent, fontWeight: '700' },
+  suggestionName: { fontWeight: '600', color: t.text, fontSize: 14 },
+  suggestionType: { marginLeft: 'auto', fontSize: 11, color: t.accent, fontWeight: '700' },
   postButton: {
-    backgroundColor: colors.accent,
+    backgroundColor: t.accent,
     borderRadius: radii.sm,
     height: 46,
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: spacing.md,
   },
-  postButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  error: { color: colors.danger, fontSize: 13, marginTop: spacing.md },
-  sectionTitle: { fontSize: 16, fontWeight: '700', marginTop: spacing.xl, marginBottom: spacing.md },
+  postButtonText: { color: t.onAccent, fontWeight: '700', fontSize: 15 },
+  error: { color: t.danger, fontSize: 13, marginTop: spacing.md },
   sectionTitleBig: { fontSize: 19, fontWeight: '800', marginBottom: spacing.md },
   sectionHeader: { marginTop: spacing.xl, marginBottom: spacing.sm },
-  quickRow: { flexDirection: 'row', gap: spacing.md },
-  quickAction: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    paddingVertical: spacing.lg,
-    marginBottom: spacing.md,
-  },
-  quickIcon: { fontSize: 26, marginBottom: spacing.xs },
-  quickLabel: { fontSize: 13, fontWeight: '700', color: colors.text },
-  quickSub: { fontSize: 11, color: colors.textSecondary, marginTop: 2 },
-  emptyLine: { color: colors.textSecondary, fontSize: 14, textAlign: 'center', paddingVertical: 32 },
+  emptyLine: { color: t.textSecondary, fontSize: 14, textAlign: 'center', paddingVertical: 32 },
   timelineCard: { marginBottom: spacing.md, padding: spacing.lg },
   timelineCardCompact: {
     marginBottom: spacing.md,
-    padding: spacing.md,
-    borderRadius: radii.md,
+    padding: spacing.lg,
+    borderRadius: radii.lg,
   },
-  feedHeaderCompact: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm },
+  feedHeaderCompact: { flexDirection: 'row', alignItems: 'center' },
   feedAvatarCompact: {
     width: 40,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.accent,
+    borderRadius: radii.full,
+    backgroundColor: t.accent,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: spacing.md,
   },
   feedHeaderTextCompact: { flex: 1 },
-  feedTitleRowCompact: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.sm },
+  feedTitleRowCompact: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   feedTitleCompact: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#111827',
+    fontSize: 14,
+    fontWeight: '600',
+    color: t.text,
     flex: 1,
   },
-  feedMetaCompact: { marginLeft: spacing.sm, fontSize: 16 },
-  feedMessageCompact: { fontSize: 13, color: '#6B7280', marginTop: spacing.sm },
+  feedMetaCompact: { marginLeft: spacing.sm, fontSize: 15 },
+  feedMessageCompact: { fontSize: 13, color: t.textSecondary, marginTop: 2, lineHeight: 18 },
+  previewBody: {
+    marginTop: spacing.sm,
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: t.borderFaint,
+  },
   feedHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md },
   feedAvatar: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: colors.accent,
+    backgroundColor: t.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  feedAvatarText: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  feedAvatarText: { color: t.onAccent, fontSize: 16, fontWeight: '800' },
   feedHeaderText: { marginLeft: spacing.md, flex: 1 },
-  feedName: { fontSize: 16, fontWeight: '700', color: '#111827' },
-  feedMeta: { fontSize: 12, color: '#6B7280', marginTop: 2 },
+  feedName: { fontSize: 16, fontWeight: '700', color: t.text },
+  feedMeta: { fontSize: 12, color: t.textSecondary, marginTop: 2 },
   feedTitle: {
     fontSize: 17,
     fontWeight: '800',
-    color: '#111827',
+    color: t.text,
     marginBottom: spacing.md,
     letterSpacing: 0.2,
   },
@@ -559,24 +730,31 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     paddingHorizontal: spacing.sm,
     marginBottom: 3,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: t.surfaceVariant,
     borderRadius: radii.sm,
   },
   detailEmoji: { fontSize: 15, marginRight: spacing.sm, marginTop: 1, width: 22, textAlign: 'center' },
   detailContent: { flex: 1 },
-  detailLabel: { fontSize: 11, fontWeight: '600', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: 0.5 },
-  detailValue: { fontSize: 14, fontWeight: '600', color: '#111827', marginTop: 1 },
+  detailLabel: { fontSize: 11, fontWeight: '600', color: t.border, textTransform: 'uppercase', letterSpacing: 0.5 },
+  detailValue: { fontSize: 14, fontWeight: '600', color: t.text, marginTop: 1 },
   messageBox: {
     marginTop: spacing.sm,
     paddingTop: spacing.sm,
     borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
+    borderTopColor: t.surfaceVariant,
   },
-  feedMessage: { fontSize: 13, color: '#6B7280', lineHeight: 20 },
+  feedMessage: { fontSize: 13, color: t.textSecondary, lineHeight: 20 },
   diaryCard: { marginBottom: spacing.sm },
   diaryRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  diaryTitle: { fontWeight: '600', fontSize: 15, color: '#111827' },
-  diaryDate: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  diaryTitle: { fontWeight: '600', fontSize: 15, color: t.text },
+  diaryDate: { fontSize: 12, color: t.textSecondary, marginTop: 2 },
+  groupEntry: {
+    marginTop: spacing.sm,
+    paddingTop: spacing.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: t.borderFaint,
+  },
+  viewAllRow: { marginTop: spacing.md, alignItems: 'flex-end' },
+  viewAllText: { color: t.accent, fontWeight: '700', fontSize: 13, letterSpacing: 0.2 },
   /* Entity preview styles */
-  
-});
+}) as const;

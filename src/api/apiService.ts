@@ -2,6 +2,9 @@ import { client } from './client';
 import type {
   AuthResponse,
   AuthUser,
+  BackupInfo,
+  BackupMetadata,
+  BackupPayload,
   CreateDiaryRequest,
   CreateEntityRequest,
   CreateNoteRequest,
@@ -95,3 +98,12 @@ export const updateEntity = (id: string, request: CreateEntityRequest) =>
 
 export const deleteEntity = (id: string) =>
   client.delete<SimpleResponse>(`entities/${id}`).then((r) => r.data);
+
+// Backup & Restore
+export const createBackup = (payload: BackupPayload) =>
+  client.post<BackupMetadata>('backups', { payload }).then((r) => r.data);
+
+export const getLatestBackup = (includePayload = false) =>
+  client
+    .get<BackupInfo>('backups/latest', { params: { includePayload } })
+    .then((r) => r.data);

@@ -1,4 +1,4 @@
-import { getDb } from '../database';
+import { getDb, serializeWrite } from '../database';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { Timeline, TimelineEntityLink, Entity } from '../../models/types';
 
@@ -160,19 +160,21 @@ export async function create(
   timeline: TimelineInput,
   entityIds?: string[],
 ): Promise<Timeline> {
-  const db = await getDb();
-  await db.withExclusiveTransactionAsync(async (txn) => {
-    const values = toTimelineRow(timeline, userId);
-    await txn.runAsync(
-      `INSERT INTO timelines (id, user_id, title, description, event_date, show_on_calendar, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      values,
-    );
-    if (entityIds !== undefined && entityIds.length > 0) {
-      await replaceLinks(txn, userId, timeline.id, entityIds);
-    }
+  return serializeWrite(async () => {
+    const db = await getDb();
+    await db.withExclusiveTransactionAsync(async (txn) => {
+      const values = toTimelineRow(timeline, userId);
+      await txn.runAsync(
+        `INSERT INTO timelines (id, user_id, title, description, event_date, show_on_calendar, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        values,
+      );
+      if (entityIds !== undefined && entityIds.length > 0) {
+        await replaceLinks(txn, userId, timeline.id, entityIds);
+      }
+    });
+    return (await getById(userId, timeline.id))!;
   });
-  return (await getById(userId, timeline.id))!;
 }
 
 export async function update(
@@ -181,68 +183,72 @@ export async function update(
   changes: TimelineUpdate,
   entityIds?: string[],
 ): Promise<boolean> {
-  const sets: string[] = [];
-  const values: (string | number | null)[] = [];
+  return serializeWrite(async () => {
+    const sets: string[] = [];
+    const values: (string | number | null)[] = [];
 
-  if (changes.title !== undefined) {
-    sets.push('title = ?');
-    values.push(changes.title);
-  }
-  if (changes.description !== undefined) {
-    sets.push('description = ?');
-    values.push(changes.description);
-  }
-  if (changes.eventDate !== undefined) {
-    sets.push('event_date = ?');
-    values.push(changes.eventDate);
-  }
-  if (changes.showOnCalendar !== undefined) {
-    sets.push('show_on_calendar = ?');
-    values.push(changes.showOnCalendar ? 1 : 0);
-  }
-  if (changes.updatedAt !== undefined) {
-    sets.push('updated_at = ?');
-    values.push(changes.updatedAt);
-  }
+    if (changes.title !== undefined) {
+      sets.push('title = ?');
+      values.push(changes.title);
+    }
+    if (changes.description !== undefined) {
+      sets.push('description = ?');
+      values.push(changes.description);
+    }
+    if (changes.eventDate !== undefined) {
+      sets.push('event_date = ?');
+      values.push(changes.eventDate);
+    }
+    if (changes.showOnCalendar !== undefined) {
+      sets.push('show_on_calendar = ?');
+      values.push(changes.showOnCalendar ? 1 : 0);
+    }
+    if (changes.updatedAt !== undefined) {
+      sets.push('updated_at = ?');
+      values.push(changes.updatedAt);
+    }
 
-  if (sets.length === 0 && entityIds === undefined) return false;
+    if (sets.length === 0 && entityIds === undefined) return false;
 
-  const db = await getDb();
-  let success = false;
+    const db = await getDb();
+    let success = false;
 
-  await db.withExclusiveTransactionAsync(async (txn) => {
-    const existing = await txn.getFirstAsync<{ id: string }>(
-      'SELECT id FROM timelines WHERE id = ? AND user_id = ?',
-      id,
-      userId,
-    );
-    if (!existing) return;
-
-    if (sets.length > 0) {
-      await txn.runAsync(
-        `UPDATE timelines SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`,
-        [...values, id, userId],
+    await db.withExclusiveTransactionAsync(async (txn) => {
+      const existing = await txn.getFirstAsync<{ id: string }>(
+        'SELECT id FROM timelines WHERE id = ? AND user_id = ?',
+        id,
+        userId,
       );
-    }
+      if (!existing) return;
 
-    if (entityIds !== undefined) {
-      await replaceLinks(txn, userId, id, entityIds);
-    }
+      if (sets.length > 0) {
+        await txn.runAsync(
+          `UPDATE timelines SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`,
+          [...values, id, userId],
+        );
+      }
 
-    success = true;
+      if (entityIds !== undefined) {
+        await replaceLinks(txn, userId, id, entityIds);
+      }
+
+      success = true;
+    });
+
+    return success;
   });
-
-  return success;
 }
 
 export async function remove(userId: string, id: string): Promise<boolean> {
-  const db = await getDb();
-  const result = await db.runAsync(
-    'DELETE FROM timelines WHERE id = ? AND user_id = ?',
-    id,
-    userId,
-  );
-  return result.changes > 0;
+  return serializeWrite(async () => {
+    const db = await getDb();
+    const result = await db.runAsync(
+      'DELETE FROM timelines WHERE id = ? AND user_id = ?',
+      id,
+      userId,
+    );
+    return result.changes > 0;
+  });
 }
 
 async function upsertEntity(
@@ -281,32 +287,44 @@ async function upsertEntity(
 // `userId` are touched. Referenced entity records are resolved against their
 // canonical entity IDs (inserted when missing locally, never duplicated).
 export async function replaceAll(userId: string, timelines: Timeline[]): Promise<void> {
-  const db = await getDb();
-  await db.withExclusiveTransactionAsync(async (txn) => {
-    await txn.runAsync('DELETE FROM timelines WHERE user_id = ?', userId);
-
-    for (const timeline of timelines) {
-      const links = Array.isArray(timeline.entities)
-        ? timeline.entities.filter((l) => l && l.entityId && l.entity)
-        : [];
-
-      for (const link of links) {
-        await upsertEntity(txn, userId, link.entity);
-      }
-
+  return serializeWrite(async () => {
+    const db = await getDb();
+    await db.withExclusiveTransactionAsync(async (txn) => {
+      // withExclusiveTransactionAsync runs on a separate native connection where
+      // PRAGMA foreign_keys is OFF, so the timelines DELETE below does NOT cascade
+      // to timeline_entities. Clear the user's links explicitly to keep replaceAll
+      // idempotent (mirrors replaceLinks) and avoid UNIQUE(timeline_id, entity_id).
       await txn.runAsync(
-        `INSERT INTO timelines (id, user_id, title, description, event_date, show_on_calendar, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        toTimelineRow(timeline, userId),
+        `DELETE FROM timeline_entities
+         WHERE timeline_id IN (SELECT id FROM timelines WHERE user_id = ?)`,
+        userId,
       );
 
-      for (const link of links) {
+      await txn.runAsync('DELETE FROM timelines WHERE user_id = ?', userId);
+
+      for (const timeline of timelines) {
+        const links = Array.isArray(timeline.entities)
+          ? timeline.entities.filter((l) => l && l.entityId && l.entity)
+          : [];
+
+        for (const link of links) {
+          await upsertEntity(txn, userId, link.entity);
+        }
+
         await txn.runAsync(
-          'INSERT INTO timeline_entities (timeline_id, entity_id) VALUES (?, ?)',
-          timeline.id,
-          link.entityId,
+          `INSERT INTO timelines (id, user_id, title, description, event_date, show_on_calendar, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          toTimelineRow(timeline, userId),
         );
+
+        for (const link of links) {
+          await txn.runAsync(
+            'INSERT INTO timeline_entities (timeline_id, entity_id) VALUES (?, ?)',
+            timeline.id,
+            link.entityId,
+          );
+        }
       }
-    }
+    });
   });
 }

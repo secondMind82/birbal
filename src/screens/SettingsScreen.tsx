@@ -1,15 +1,20 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import AppShell from '../components/AppShell';
 import { Button, Card, ErrorText, Input } from '../components/ui';
 import { updateProfile } from '../api/apiService';
 import { getErrorMessage } from '../api/client';
+import { getLatestBackupInfo, restoreLatestBackup, uploadBackup } from '../services/backupService';
 import { useAuthStore } from '../store/authStore';
 import { usePrefsStore } from '../store/prefsStore';
-import { colors, radii, spacing } from '../theme';
+import type { BackupMetadata } from '../models/types';
+import { radii, spacing, useAppStyles, useAppTheme } from '../theme';
+import type { BirbalTheme } from '../theme';
 
 export default function SettingsScreen() {
+  const t = useAppTheme();
+  const styles = useAppStyles(makeStyles);
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
   const logout = useAuthStore((s) => s.logout);
@@ -26,6 +31,69 @@ export default function SettingsScreen() {
 
   const [showMorningPicker, setShowMorningPicker] = useState(false);
   const [showEveningPicker, setShowEveningPicker] = useState(false);
+
+  const [lastBackup, setLastBackup] = useState<BackupMetadata | null>(null);
+  const [backupWorking, setBackupWorking] = useState(false);
+  const [restoreWorking, setRestoreWorking] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    getLatestBackupInfo(user?.id)
+      .then((info) => {
+        if (active && info) setLastBackup(info);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
+
+  const handleBackup = async () => {
+    if (backupWorking) return;
+    setBackupWorking(true);
+    try {
+      const meta = await uploadBackup(user?.id);
+      setLastBackup(meta);
+      Alert.alert('Backup completed successfully');
+    } catch {
+      Alert.alert('Backup failed. Please try again.');
+    } finally {
+      setBackupWorking(false);
+    }
+  };
+
+  const confirmRestore = () => {
+    if (restoreWorking || !lastBackup) return;
+    Alert.alert('Restore your backup?', 'Your current local data may be replaced or merged with the backup.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Restore', style: 'destructive', onPress: () => void runRestore() },
+    ]);
+  };
+
+  const runRestore = async () => {
+    if (restoreWorking) return;
+    setRestoreWorking(true);
+    try {
+      await restoreLatestBackup(user?.id);
+      Alert.alert('Restore completed successfully');
+    } catch {
+      Alert.alert('Restore failed. Please try again.');
+    } finally {
+      setRestoreWorking(false);
+    }
+  };
+
+  const formatDateTime = (iso: string) => {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleString('en', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  };
 
   const handleSave = async () => {
     setLoading(true);
@@ -124,7 +192,7 @@ export default function SettingsScreen() {
             <Switch
               value={prefs.morningEnabled}
               onValueChange={setMorning}
-              trackColor={{ false: '#D1D5DB', true: colors.accent }}
+              trackColor={{ false: t.border, true: t.accent }}
               thumbColor="#fff"
             />
           </View>
@@ -146,7 +214,7 @@ export default function SettingsScreen() {
             <Switch
               value={prefs.eveningEnabled}
               onValueChange={setEvening}
-              trackColor={{ false: '#D1D5DB', true: colors.accent }}
+              trackColor={{ false: t.border, true: t.accent }}
               thumbColor="#fff"
             />
           </View>
@@ -165,7 +233,7 @@ export default function SettingsScreen() {
             <Switch
               value={prefs.emailOnEvent}
               onValueChange={setEmailOnEvent}
-              trackColor={{ false: '#D1D5DB', true: colors.accent }}
+              trackColor={{ false: t.border, true: t.accent }}
               thumbColor="#fff"
             />
           </View>
@@ -177,10 +245,36 @@ export default function SettingsScreen() {
             <Switch
               value={prefs.pushEnabled}
               onValueChange={setPushEnabled}
-              trackColor={{ false: '#D1D5DB', true: colors.accent }}
+              trackColor={{ false: t.border, true: t.accent }}
               thumbColor="#fff"
             />
           </View>
+        </Card>
+
+        <Card>
+          <Text style={styles.sectionTitle}>Data Backup &amp; Restore</Text>
+          <Text style={styles.prefDesc}>
+            Keep your data safe by creating a backup.
+            {'\n'}Restore it anytime on this or a new device.
+          </Text>
+
+          <Button
+            title={backupWorking ? 'Backing up...' : 'Backup Now'}
+            onPress={() => void handleBackup()}
+            disabled={backupWorking}
+          />
+          <Button
+            title={restoreWorking ? 'Restoring...' : 'Restore'}
+            onPress={confirmRestore}
+            disabled={restoreWorking || !lastBackup}
+            variant="outline"
+          />
+
+          <Text style={styles.backupState}>
+            {lastBackup
+              ? `Last backup: ${formatDateTime(lastBackup.createdAt)}`
+              : 'No backup available'}
+          </Text>
         </Card>
 
         <Button title="Logout" variant="danger" onPress={confirmLogout} />
@@ -216,51 +310,52 @@ export default function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: BirbalTheme) => ({
   container: { padding: spacing.lg, paddingBottom: 40, gap: spacing.md },
   profileRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
   avatar: {
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: colors.accent,
+    backgroundColor: t.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarText: { color: '#fff', fontSize: 28, fontWeight: '800' },
-  name: { fontSize: 18, fontWeight: '700', color: colors.text },
-  email: { fontSize: 13, color: colors.textSecondary, marginTop: 2 },
-  sectionTitle: { fontWeight: '700', fontSize: 15, marginBottom: spacing.md },
+  avatarText: { color: t.onAccent, fontSize: 28, fontWeight: '800' },
+  name: { fontSize: 18, fontWeight: '700', color: t.text },
+  email: { fontSize: 13, color: t.textSecondary, marginTop: 2 },
+  sectionTitle: { color: t.text, fontWeight: '700', fontSize: 15, marginBottom: spacing.md },
   emailLocked: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: t.surfaceVariant,
     borderRadius: radii.sm,
     padding: spacing.md,
     marginTop: spacing.sm,
   },
-  emailLockedLabel: { fontSize: 12, fontWeight: '600', color: colors.textSecondary },
-  emailLockedValue: { fontSize: 14, color: colors.text, fontWeight: '600', marginTop: 2 },
-  emailLockedHint: { fontSize: 11, color: colors.textSecondary, marginTop: 4 },
-  saved: { color: colors.success, fontSize: 13, marginTop: spacing.xs },
-  prefDesc: { fontSize: 13, color: colors.textSecondary, marginBottom: spacing.md },
+  emailLockedLabel: { fontSize: 12, fontWeight: '600', color: t.textSecondary },
+  emailLockedValue: { fontSize: 14, color: t.text, fontWeight: '600', marginTop: 2 },
+  emailLockedHint: { fontSize: 11, color: t.textSecondary, marginTop: 4 },
+  saved: { color: t.success, fontSize: 13, marginTop: spacing.xs },
+  prefDesc: { fontSize: 13, color: t.textSecondary, marginBottom: spacing.md },
   prefRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: spacing.md,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: t.border,
   },
   prefInfo: { flex: 1, marginRight: spacing.md },
-  prefLabel: { fontSize: 14, fontWeight: '600', color: colors.text },
-  prefTime: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  prefLabel: { fontSize: 14, fontWeight: '600', color: t.text },
+  prefTime: { fontSize: 12, color: t.textSecondary, marginTop: 2 },
   timeBtn: {
     alignSelf: 'flex-start',
-    backgroundColor: '#EEF2FF',
+    backgroundColor: t.accentSoft,
     borderRadius: radii.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: 6,
     marginTop: -spacing.sm,
     marginBottom: spacing.sm,
   },
-  timeBtnText: { fontSize: 12, fontWeight: '600', color: colors.accent },
-});
+  timeBtnText: { fontSize: 12, fontWeight: '600', color: t.accent },
+  backupState: { fontSize: 13, color: t.textSecondary, marginTop: spacing.sm + 2 },
+} as const);

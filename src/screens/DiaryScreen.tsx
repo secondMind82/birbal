@@ -4,7 +4,6 @@ import {
   Alert,
   FlatList,
   Pressable,
-  StyleSheet,
   Text,
   View,
 } from 'react-native';
@@ -16,7 +15,8 @@ import { EmptyState } from '../components/ui';
 import type { DiaryEntry } from '../models/types';
 import { useAuthStore } from '../store/authStore';
 import * as diaryService from '../services/diaryService';
-import { colors, radii, spacing } from '../theme';
+import { radii, spacing, useAppStyles, useAppTheme } from '../theme';
+import type { BirbalTheme } from '../theme';
 
 type Nav = NativeStackNavigationProp<import('../navigation/types').RootStackParamList>;
 
@@ -31,6 +31,8 @@ const MOODS: Record<string, string> = {
 
 export default function DiaryScreen() {
   const navigation = useNavigation<Nav>();
+  const t = useAppTheme();
+  const styles = useAppStyles(makeStyles);
   const [entries, setEntries] = useState<DiaryEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -86,7 +88,7 @@ export default function DiaryScreen() {
     return (
       <AppShell title="My Diary">
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.accent} />
+          <ActivityIndicator size="large" color={t.accent} />
         </View>
       </AppShell>
     );
@@ -126,7 +128,7 @@ export default function DiaryScreen() {
                   <Text style={styles.action}>Edit</Text>
                 </Pressable>
                 <Pressable onPress={() => confirmDelete(item)} hitSlop={6}>
-                  <Text style={[styles.action, { color: colors.danger }]}>Delete</Text>
+                  <Text style={[styles.action, { color: t.danger }]}>Delete</Text>
                 </Pressable>
               </View>
             </View>
@@ -141,15 +143,15 @@ export default function DiaryScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: BirbalTheme) => ({
   flex: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   container: { padding: spacing.lg, paddingBottom: 80, flexGrow: 1 },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: t.surface,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.border,
     padding: spacing.lg,
     marginBottom: spacing.md,
     flexDirection: 'row',
@@ -157,11 +159,11 @@ const styles = StyleSheet.create({
   },
   mood: { fontSize: 26 },
   titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  title: { flex: 1, fontWeight: '700', fontSize: 16, color: colors.text },
-  date: { fontSize: 12, color: colors.textSecondary, marginLeft: spacing.sm },
-  content: { color: colors.textSecondary, marginTop: spacing.xs, lineHeight: 20 },
+  title: { flex: 1, fontWeight: '700', fontSize: 16, color: t.text },
+  date: { fontSize: 12, color: t.textSecondary, marginLeft: spacing.sm },
+  content: { color: t.textSecondary, marginTop: spacing.xs, lineHeight: 20 },
   actions: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.sm + 2 },
-  action: { color: colors.accent, fontWeight: '600', fontSize: 13 },
+  action: { color: t.accent, fontWeight: '600', fontSize: 13 },
   fab: {
     position: 'absolute',
     right: spacing.xl,
@@ -169,11 +171,11 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: colors.accent,
+    backgroundColor: t.accent,
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 4,
   },
-  fabIcon: { color: '#fff', fontSize: 28, marginTop: -2 },
-  error: { color: colors.danger, textAlign: 'center', marginTop: spacing.xl },
-});
+  fabIcon: { color: t.onAccent, fontSize: 28, marginTop: -2 },
+  error: { color: t.danger, textAlign: 'center', marginTop: spacing.xl },
+} as const);

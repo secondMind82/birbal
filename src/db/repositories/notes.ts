@@ -1,4 +1,4 @@
-import { getDb } from '../database';
+import { getDb, serializeWrite } from '../database';
 import type { Note } from '../../models/types';
 
 export interface NoteInput {
@@ -56,19 +56,21 @@ export async function getById(userId: string, id: string): Promise<Note | null> 
 }
 
 export async function create(userId: string, note: NoteInput): Promise<Note> {
-  const db = await getDb();
-  await db.runAsync(
-    `INSERT INTO notes (id, user_id, title, content, pinned, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    note.id,
-    userId,
-    note.title,
-    note.content,
-    note.pinned ? 1 : 0,
-    note.createdAt ?? null,
-    note.updatedAt,
-  );
-  return (await getById(userId, note.id))!;
+  return serializeWrite(async () => {
+    const db = await getDb();
+    await db.runAsync(
+      `INSERT INTO notes (id, user_id, title, content, pinned, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      note.id,
+      userId,
+      note.title,
+      note.content,
+      note.pinned ? 1 : 0,
+      note.createdAt ?? null,
+      note.updatedAt,
+    );
+    return (await getById(userId, note.id))!;
+  });
 }
 
 export async function update(
@@ -76,62 +78,68 @@ export async function update(
   id: string,
   changes: NoteUpdate,
 ): Promise<boolean> {
-  const sets: string[] = [];
-  const values: (string | number | null)[] = [];
+  return serializeWrite(async () => {
+    const sets: string[] = [];
+    const values: (string | number | null)[] = [];
 
-  if (changes.title !== undefined) {
-    sets.push('title = ?');
-    values.push(changes.title);
-  }
-  if (changes.content !== undefined) {
-    sets.push('content = ?');
-    values.push(changes.content);
-  }
-  if (changes.pinned !== undefined) {
-    sets.push('pinned = ?');
-    values.push(changes.pinned ? 1 : 0);
-  }
-  if (changes.updatedAt !== undefined) {
-    sets.push('updated_at = ?');
-    values.push(changes.updatedAt);
-  }
+    if (changes.title !== undefined) {
+      sets.push('title = ?');
+      values.push(changes.title);
+    }
+    if (changes.content !== undefined) {
+      sets.push('content = ?');
+      values.push(changes.content);
+    }
+    if (changes.pinned !== undefined) {
+      sets.push('pinned = ?');
+      values.push(changes.pinned ? 1 : 0);
+    }
+    if (changes.updatedAt !== undefined) {
+      sets.push('updated_at = ?');
+      values.push(changes.updatedAt);
+    }
 
-  if (sets.length === 0) return false;
+    if (sets.length === 0) return false;
 
-  const db = await getDb();
-  const result = await db.runAsync(
-    `UPDATE notes SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`,
-    [...values, id, userId],
-  );
-  return result.changes > 0;
+    const db = await getDb();
+    const result = await db.runAsync(
+      `UPDATE notes SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`,
+      [...values, id, userId],
+    );
+    return result.changes > 0;
+  });
 }
 
 export async function remove(userId: string, id: string): Promise<boolean> {
-  const db = await getDb();
-  const result = await db.runAsync(
-    'DELETE FROM notes WHERE id = ? AND user_id = ?',
-    id,
-    userId,
-  );
-  return result.changes > 0;
+  return serializeWrite(async () => {
+    const db = await getDb();
+    const result = await db.runAsync(
+      'DELETE FROM notes WHERE id = ? AND user_id = ?',
+      id,
+      userId,
+    );
+    return result.changes > 0;
+  });
 }
 
 export async function replaceAll(userId: string, notes: Note[]): Promise<void> {
-  const db = await getDb();
-  await db.withExclusiveTransactionAsync(async (txn) => {
-    await txn.runAsync('DELETE FROM notes WHERE user_id = ?', userId);
-    for (const note of notes) {
-      await txn.runAsync(
-        `INSERT INTO notes (id, user_id, title, content, pinned, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        note.id,
-        userId,
-        note.title,
-        note.content,
-        note.pinned ? 1 : 0,
-        note.createdAt ?? null,
-        note.updatedAt,
-      );
-    }
+  return serializeWrite(async () => {
+    const db = await getDb();
+    await db.withExclusiveTransactionAsync(async (txn) => {
+      await txn.runAsync('DELETE FROM notes WHERE user_id = ?', userId);
+      for (const note of notes) {
+        await txn.runAsync(
+          `INSERT INTO notes (id, user_id, title, content, pinned, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          note.id,
+          userId,
+          note.title,
+          note.content,
+          note.pinned ? 1 : 0,
+          note.createdAt ?? null,
+          note.updatedAt,
+        );
+      }
+    });
   });
 }

@@ -17,12 +17,15 @@ import { EmptyState } from '../components/ui';
 import type { Note } from '../models/types';
 import { useAuthStore } from '../store/authStore';
 import * as notesService from '../services/notesService';
-import { colors, radii, spacing } from '../theme';
+import { radii, spacing, useAppStyles, useAppTheme } from '../theme';
+import type { BirbalTheme } from '../theme';
 
 type Nav = NativeStackNavigationProp<import('../navigation/types').RootStackParamList>;
 
 export default function NotesScreen() {
   const navigation = useNavigation<Nav>();
+  const t = useAppTheme();
+  const styles = useAppStyles(makeStyles);
   const [notes, setNotes] = useState<Note[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -112,7 +115,7 @@ export default function NotesScreen() {
     return (
       <AppShell title="Notes">
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.accent} />
+          <ActivityIndicator size="large" color={t.accent} />
         </View>
       </AppShell>
     );
@@ -133,7 +136,7 @@ export default function NotesScreen() {
                   value={search}
                   onChangeText={setSearch}
                   placeholder="Search notes..."
-                  placeholderTextColor={colors.textSecondary}
+                  placeholderTextColor={t.textSecondary}
                 />
               )}
               {pinned.length > 0 && (
@@ -216,57 +219,59 @@ function MenuItem({
   onPress: () => void;
   danger?: boolean;
 }) {
+  const t = useAppTheme();
+  const styles = useAppStyles(makeStyles);
   return (
     <Pressable style={({ pressed }) => [styles.menuItem, pressed && { opacity: 0.6 }]} onPress={onPress}>
       <Text style={{ fontSize: 13 }}>{icon}</Text>
-      <Text style={[styles.menuItemLabel, danger && { color: colors.danger }]}>{label}</Text>
+      <Text style={[styles.menuItemLabel, danger && { color: t.danger }]}>{label}</Text>
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: BirbalTheme) => ({
   flex: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   container: { padding: spacing.lg, paddingBottom: 80, flexGrow: 1 },
   search: {
-    backgroundColor: '#fff',
+    backgroundColor: t.surface,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.border,
     borderRadius: radii.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: 10,
     fontSize: 14,
-    color: colors.text,
+    color: t.text,
     marginBottom: spacing.md,
   },
   sectionLabel: {
     fontWeight: '700',
     fontSize: 14,
-    color: colors.textSecondary,
+    color: t.textSecondary,
     marginBottom: spacing.sm,
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: t.surface,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.border,
     padding: spacing.lg,
     marginBottom: spacing.md,
   },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   pin: { fontSize: 14 },
-  title: { flex: 1, fontWeight: '700', fontSize: 16, color: colors.text },
-  more: { fontSize: 20, fontWeight: '700', color: colors.textSecondary, paddingHorizontal: 4 },
-  content: { color: colors.textSecondary, marginTop: spacing.xs, lineHeight: 20 },
-  date: { fontSize: 12, color: colors.textSecondary, marginTop: spacing.sm + 2 },
+  title: { flex: 1, fontWeight: '700', fontSize: 16, color: t.text },
+  more: { fontSize: 20, fontWeight: '700', color: t.textSecondary, paddingHorizontal: 4 },
+  content: { color: t.textSecondary, marginTop: spacing.xs, lineHeight: 20 },
+  date: { fontSize: 12, color: t.textSecondary, marginTop: spacing.sm + 2 },
   menu: {
     position: 'absolute',
     top: 40,
     right: spacing.lg,
-    backgroundColor: '#fff',
+    backgroundColor: t.surface,
     borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.border,
     elevation: 8,
     shadowColor: '#000',
     shadowOpacity: 0.15,
@@ -282,9 +287,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: 11,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
+    borderBottomColor: t.border,
   },
-  menuItemLabel: { fontSize: 14, fontWeight: '600', color: colors.text },
+  menuItemLabel: { fontSize: 14, fontWeight: '600', color: t.text },
   fab: {
     position: 'absolute',
     right: spacing.xl,
@@ -292,12 +297,12 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: colors.accent,
+    backgroundColor: t.accent,
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 4,
   },
-  fabIcon: { color: '#fff', fontSize: 28, marginTop: -2 },
-  noResults: { textAlign: 'center', color: colors.textSecondary, marginTop: spacing.xl },
-  error: { color: colors.danger, textAlign: 'center', marginTop: spacing.xl },
-});
+  fabIcon: { color: t.onAccent, fontSize: 28, marginTop: -2 },
+  noResults: { textAlign: 'center', color: t.textSecondary, marginTop: spacing.xl },
+  error: { color: t.danger, textAlign: 'center', marginTop: spacing.xl },
+} as const);

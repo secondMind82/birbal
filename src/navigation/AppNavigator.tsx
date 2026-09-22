@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme as NavDefaultTheme, DarkTheme as NavDarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createDrawerNavigator } from '@react-navigation/drawer';
 
@@ -25,18 +25,11 @@ import PreviewTimelineScreen from '../screens/PreviewTimelineScreen';
 import PreviewDiaryScreen from '../screens/PreviewDiaryScreen';
 import DrawerContent from '../components/DrawerContent';
 import { useAuthStore } from '../store/authStore';
-import { colors } from '../theme';
+import { darkColors, useAppTheme } from '../theme';
 import type { RootStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Drawer = createDrawerNavigator();
-
-const screenOptions = {
-  headerStyle: { backgroundColor: colors.sidebarStart },
-  headerTintColor: '#fff',
-  headerTitleStyle: { fontWeight: '700' as const },
-  contentStyle: { backgroundColor: colors.background },
-};
 
 function MainDrawer() {
   return (
@@ -62,18 +55,48 @@ function MainDrawer() {
 export default function AppNavigator() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const restoring = useAuthStore((s) => s.restoring);
+  const theme = useAppTheme();
+
+  const screenOptions = useMemo(
+    () => ({
+      headerStyle: { backgroundColor: theme.sidebarStart },
+      headerTintColor: '#fff',
+      headerTitleStyle: { fontWeight: '800' as const, letterSpacing: -0.2 },
+      headerShadowVisible: false,
+      contentStyle: { backgroundColor: theme.background },
+    }),
+    [theme],
+  );
+
+  const navTheme = useMemo(() => {
+    const isDark = theme === darkColors;
+    const base = isDark ? NavDarkTheme : NavDefaultTheme;
+    return {
+      ...base,
+      dark: isDark,
+      colors: {
+        ...base.colors,
+        background: theme.background,
+        card: theme.sidebarStart,
+        text: '#fff',
+        border: theme.border,
+        primary: theme.accent,
+        notification: theme.danger,
+      },
+    };
+  }, [theme]);
 
   if (restoring) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background }}>
-        <ActivityIndicator size="large" color={colors.accent} />
-        <Text style={{ marginTop: 12, color: colors.textSecondary }}>Birbal</Text>
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.background }}>
+        <ActivityIndicator size="large" color={theme.accent} />
+        <Text style={{ marginTop: 12, color: theme.textSecondary, fontWeight: '700', letterSpacing: 0.4 }}>Birbal</Text>
       </View>
     );
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer theme={navTheme}>
       <Stack.Navigator screenOptions={screenOptions}>
         {!isAuthenticated ? (
           <>

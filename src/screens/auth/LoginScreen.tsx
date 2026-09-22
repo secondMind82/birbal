@@ -7,7 +7,6 @@ import {
   Pressable,
   ScrollView,
   StatusBar,
-  StyleSheet,
   Text,
   View,
 } from 'react-native';
@@ -17,11 +16,14 @@ import { Button, ErrorText, Input } from '../../components/ui';
 import type { RootStackParamList } from '../../navigation/types';
 import { useAuthStore } from '../../store/authStore';
 import { signOutFromGoogle } from '../../services/socialAuth';
-import { colors, radii, spacing } from '../../theme';
+import { radii, spacing, useAppStyles, useAppTheme } from '../../theme';
+import type { BirbalTheme } from '../../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Login'>;
 
 export default function LoginScreen({ navigation }: Props) {
+  const t = useAppTheme();
+  const styles = useAppStyles(makeStyles);
   const login = useAuthStore((s) => s.login);
   const loginWithGoogle = useAuthStore((s) => s.loginWithGoogle);
   const loginWithApple = useAuthStore((s) => s.loginWithApple);
@@ -119,7 +121,7 @@ export default function LoginScreen({ navigation }: Props) {
             style={styles.socialButton}
             onPress={() => void handleAppleLogin()}>
             <FontAwesome name="apple" size={22} color="#1A1A1A" />
-            <Text style={[styles.socialButtonText, { color: '#1A1A1A' }]}>
+            <Text style={[styles.socialButtonText, { color: t.text }]}>
               Continue with Apple
             </Text>
           </Pressable>
@@ -136,13 +138,13 @@ export default function LoginScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: BirbalTheme) => ({
   flex: { flex: 1 },
   container: {
     flexGrow: 1,
     justifyContent: 'center',
     padding: spacing.xl,
-    backgroundColor: '#F5F7FB',
+    backgroundColor: t.background,
   },
   logo: {
     width: 80,
@@ -152,7 +154,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xxl,
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: t.surface,
     borderRadius: radii.lg,
     padding: spacing.xl,
     shadowColor: '#000',
@@ -161,15 +163,15 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 4,
   },
-  title: { fontSize: 24, fontWeight: '700', textAlign: 'center' },
+  title: { color: t.text, fontSize: 24, fontWeight: '700', textAlign: 'center' },
   subtitle: {
     fontSize: 14,
-    color: colors.textSecondary,
+    color: t.textSecondary,
     textAlign: 'center',
     marginTop: spacing.sm,
     marginBottom: spacing.xl,
   },
-  show: { color: colors.accent, fontWeight: '600', fontSize: 13 },
+  show: { color: t.accent, fontWeight: '600', fontSize: 13 },
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -178,13 +180,13 @@ const styles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: colors.border,
+    backgroundColor: t.border,
   },
   dividerText: {
     marginHorizontal: spacing.md,
     fontSize: 13,
     fontWeight: '600',
-    color: colors.textSecondary,
+    color: t.textSecondary,
   },
   socialButton: {
     flexDirection: 'row',
@@ -193,15 +195,15 @@ const styles = StyleSheet.create({
     height: 50,
     borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderColor: t.border,
+    backgroundColor: t.surface,
     marginBottom: spacing.md,
     gap: spacing.sm,
   },
   socialButtonText: {
     fontSize: 15,
     fontWeight: '600',
-    color: colors.text,
+    color: t.text,
   },
   row: {
     flexDirection: 'row',
@@ -209,6 +211,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: spacing.sm,
   },
-  rowText: { fontSize: 14 },
-  link: { color: colors.accent, fontWeight: '700', fontSize: 14 },
-});
+  rowText: { color: t.text, fontSize: 14 },
+  link: { color: t.accent, fontWeight: '700', fontSize: 14 },
+} as const);

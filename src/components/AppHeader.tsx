@@ -1,7 +1,8 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useNotificationStore } from '../store/notificationStore';
-import { colors } from '../theme';
+import { useAppTheme } from '../theme';
 
 export default function AppHeader({
   title,
@@ -13,19 +14,20 @@ export default function AppHeader({
   onOpenNotifications: () => void;
 }) {
   const badge = useNotificationStore((s) => s.notificationCount);
+  const theme = useAppTheme();
 
   return (
     <View style={styles.header}>
       <Pressable onPress={onOpenDrawer} hitSlop={10} style={styles.iconBtn}>
-        <Text style={styles.menuIcon}>☰</Text>
+        <Ionicons name="menu" size={22} color="#FFFFFF" />
       </Pressable>
       <Text style={styles.title} numberOfLines={1}>
         {title}
       </Text>
       <Pressable onPress={onOpenNotifications} hitSlop={10} style={styles.iconBtn}>
-        <Text style={styles.bellIcon}>🔔</Text>
+        <Ionicons name="notifications-outline" size={21} color="#FFFFFF" />
         {badge > 0 && (
-          <View style={styles.badge}>
+          <View style={[styles.badge, { backgroundColor: theme.danger }]}>
             <Text style={styles.badgeText}>{badge > 9 ? '9+' : badge}</Text>
           </View>
         )}
@@ -36,31 +38,29 @@ export default function AppHeader({
 
 const styles = StyleSheet.create({
   header: {
-    backgroundColor: colors.sidebarStart,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingBottom: 12,
+    paddingHorizontal: 10,
+    paddingBottom: 14,
+    paddingTop: 4,
     gap: 4,
   },
-  iconBtn: { padding: 8 },
-  menuIcon: { color: '#fff', fontSize: 22 },
-  bellIcon: { fontSize: 20 },
+  iconBtn: { padding: 8, borderRadius: 12 },
   title: {
     flex: 1,
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '700',
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: -0.2,
     textAlign: 'center',
   },
   badge: {
     position: 'absolute',
-    top: 2,
-    right: 0,
+    top: 4,
+    right: 4,
     minWidth: 16,
     height: 16,
     borderRadius: 8,
-    backgroundColor: colors.danger,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 3,

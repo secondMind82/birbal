@@ -4,7 +4,6 @@ import {
   Alert,
   FlatList,
   Pressable,
-  StyleSheet,
   Text,
   TextInput,
   View,
@@ -17,7 +16,8 @@ import { EmptyState } from '../components/ui';
 import type { Entity } from '../models/types';
 import { useAuthStore } from '../store/authStore';
 import * as entitiesService from '../services/entitiesService';
-import { colors, radii, spacing } from '../theme';
+import { radii, spacing, useAppStyles, useAppTheme } from '../theme';
+import type { BirbalTheme } from '../theme';
 
 type Nav = NativeStackNavigationProp<import('../navigation/types').RootStackParamList>;
 
@@ -32,6 +32,8 @@ const TYPE_ICONS: Record<string, string> = {
 };
 
 export default function EntitiesScreen() {
+  const t = useAppTheme();
+  const styles = useAppStyles(makeStyles);
   const navigation = useNavigation<Nav>();
   const userId = useAuthStore((s) => s.user?.id);
   const [entities, setEntities] = useState<Entity[]>([]);
@@ -121,7 +123,7 @@ export default function EntitiesScreen() {
     return (
       <AppShell title="Entities">
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.accent} />
+          <ActivityIndicator size="large" color={t.accent} />
         </View>
       </AppShell>
     );
@@ -151,7 +153,7 @@ export default function EntitiesScreen() {
                   value={search}
                   onChangeText={setSearch}
                   placeholder="Search person or company..."
-                  placeholderTextColor={colors.textSecondary}
+                  placeholderTextColor={t.textSecondary}
                 />
               )}
             </>
@@ -172,7 +174,7 @@ export default function EntitiesScreen() {
               <View
                 style={[
                   styles.avatar,
-                  { backgroundColor: '#EEF2FF' },
+                  { backgroundColor: t.accentSoft },
                 ]}>
                 <Text style={{ fontSize: 20 }}>{TYPE_ICONS[item.type] ?? '👤'}</Text>
               </View>
@@ -202,6 +204,7 @@ export default function EntitiesScreen() {
 }
 
 function StatCard({ label, value }: { label: string; value: number }) {
+  const styles = useAppStyles(makeStyles);
   return (
     <View style={styles.statCard}>
       <Text style={styles.statValue}>{value}</Text>
@@ -210,40 +213,40 @@ function StatCard({ label, value }: { label: string; value: number }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: BirbalTheme) => ({
   flex: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   container: { padding: spacing.lg, paddingBottom: 80, flexGrow: 1 },
-  pageTitle: { fontSize: 22, fontWeight: '800', color: colors.text },
-  pageSubtitle: { fontSize: 13, color: colors.textSecondary, marginTop: 2, marginBottom: spacing.lg },
+  pageTitle: { fontSize: 22, fontWeight: '800', color: t.text },
+  pageSubtitle: { fontSize: 13, color: t.textSecondary, marginTop: 2, marginBottom: spacing.lg },
   statsRow: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md },
   statCard: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: t.surface,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.border,
     alignItems: 'center',
     paddingVertical: spacing.md,
   },
-  statValue: { fontSize: 20, fontWeight: '800', color: colors.accent },
-  statLabel: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  statValue: { fontSize: 20, fontWeight: '800', color: t.accent },
+  statLabel: { fontSize: 12, color: t.textSecondary, marginTop: 2 },
   search: {
-    backgroundColor: '#fff',
+    backgroundColor: t.surface,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.border,
     borderRadius: radii.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: 10,
     fontSize: 14,
-    color: colors.text,
+    color: t.text,
     marginBottom: spacing.md,
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: t.surface,
     borderRadius: radii.md,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: t.border,
     padding: spacing.lg,
     marginBottom: spacing.md,
     flexDirection: 'row',
@@ -258,20 +261,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  name: { fontWeight: '700', fontSize: 16, color: colors.text },
+  name: { fontWeight: '700', fontSize: 16, color: t.text },
   type: {
     alignSelf: 'flex-start',
     fontSize: 11,
     fontWeight: '700',
-    color: colors.accent,
-    backgroundColor: '#EEF2FF',
+    color: t.accent,
+    backgroundColor: t.accentSoft,
     paddingHorizontal: spacing.sm + 2,
     paddingVertical: 2,
     borderRadius: radii.full,
     overflow: 'hidden',
     marginTop: 4,
   },
-  desc: { fontSize: 13, color: colors.textSecondary, marginTop: 4 },
+  desc: { fontSize: 13, color: t.textSecondary, marginTop: 4 },
   delete: { fontSize: 16, padding: 4 },
   fab: {
     position: 'absolute',
@@ -280,12 +283,12 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: colors.accent,
+    backgroundColor: t.accent,
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 4,
   },
-  fabIcon: { color: '#fff', fontSize: 28, marginTop: -2 },
-  noResults: { textAlign: 'center', color: colors.textSecondary, marginTop: spacing.xl },
-  error: { color: colors.danger, textAlign: 'center', marginTop: spacing.xl },
-});
+  fabIcon: { color: t.onAccent, fontSize: 28, marginTop: -2 },
+  noResults: { textAlign: 'center', color: t.textSecondary, marginTop: spacing.xl },
+  error: { color: t.danger, textAlign: 'center', marginTop: spacing.xl },
+}) as const;

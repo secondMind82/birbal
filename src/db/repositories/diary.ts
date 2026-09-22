@@ -1,4 +1,4 @@
-import { getDb } from '../database';
+import { getDb, serializeWrite } from '../database';
 import type { DiaryEntry } from '../../models/types';
 
 export interface DiaryInput {
@@ -59,20 +59,22 @@ export async function getById(userId: string, id: string): Promise<DiaryEntry | 
 }
 
 export async function create(userId: string, entry: DiaryInput): Promise<DiaryEntry> {
-  const db = await getDb();
-  await db.runAsync(
-    `INSERT INTO diary_entries (id, user_id, title, content, mood, entry_date, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    entry.id,
-    userId,
-    entry.title,
-    entry.content,
-    entry.mood,
-    entry.entryDate,
-    entry.createdAt ?? null,
-    entry.updatedAt ?? null,
-  );
-  return (await getById(userId, entry.id))!;
+  return serializeWrite(async () => {
+    const db = await getDb();
+    await db.runAsync(
+      `INSERT INTO diary_entries (id, user_id, title, content, mood, entry_date, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      entry.id,
+      userId,
+      entry.title,
+      entry.content,
+      entry.mood,
+      entry.entryDate,
+      entry.createdAt ?? null,
+      entry.updatedAt ?? null,
+    );
+    return (await getById(userId, entry.id))!;
+  });
 }
 
 export async function update(
@@ -80,70 +82,76 @@ export async function update(
   id: string,
   changes: DiaryUpdate,
 ): Promise<boolean> {
-  const sets: string[] = [];
-  const values: (string | number | null)[] = [];
+  return serializeWrite(async () => {
+    const sets: string[] = [];
+    const values: (string | number | null)[] = [];
 
-  if (changes.title !== undefined) {
-    sets.push('title = ?');
-    values.push(changes.title);
-  }
-  if (changes.content !== undefined) {
-    sets.push('content = ?');
-    values.push(changes.content);
-  }
-  if (changes.mood !== undefined) {
-    sets.push('mood = ?');
-    values.push(changes.mood);
-  }
-  if (changes.entryDate !== undefined) {
-    sets.push('entry_date = ?');
-    values.push(changes.entryDate);
-  }
-  if (changes.updatedAt !== undefined) {
-    sets.push('updated_at = ?');
-    values.push(changes.updatedAt);
-  }
+    if (changes.title !== undefined) {
+      sets.push('title = ?');
+      values.push(changes.title);
+    }
+    if (changes.content !== undefined) {
+      sets.push('content = ?');
+      values.push(changes.content);
+    }
+    if (changes.mood !== undefined) {
+      sets.push('mood = ?');
+      values.push(changes.mood);
+    }
+    if (changes.entryDate !== undefined) {
+      sets.push('entry_date = ?');
+      values.push(changes.entryDate);
+    }
+    if (changes.updatedAt !== undefined) {
+      sets.push('updated_at = ?');
+      values.push(changes.updatedAt);
+    }
 
-  if (sets.length === 0) return false;
+    if (sets.length === 0) return false;
 
-  const db = await getDb();
-  const result = await db.runAsync(
-    `UPDATE diary_entries SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`,
-    [...values, id, userId],
-  );
-  return result.changes > 0;
+    const db = await getDb();
+    const result = await db.runAsync(
+      `UPDATE diary_entries SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`,
+      [...values, id, userId],
+    );
+    return result.changes > 0;
+  });
 }
 
 export async function remove(userId: string, id: string): Promise<boolean> {
-  const db = await getDb();
-  const result = await db.runAsync(
-    'DELETE FROM diary_entries WHERE id = ? AND user_id = ?',
-    id,
-    userId,
-  );
-  return result.changes > 0;
+  return serializeWrite(async () => {
+    const db = await getDb();
+    const result = await db.runAsync(
+      'DELETE FROM diary_entries WHERE id = ? AND user_id = ?',
+      id,
+      userId,
+    );
+    return result.changes > 0;
+  });
 }
 
 export async function replaceAll(
   userId: string,
   entries: DiaryEntry[],
 ): Promise<void> {
-  const db = await getDb();
-  await db.withExclusiveTransactionAsync(async (txn) => {
-    await txn.runAsync('DELETE FROM diary_entries WHERE user_id = ?', userId);
-    for (const entry of entries) {
-      await txn.runAsync(
-        `INSERT INTO diary_entries (id, user_id, title, content, mood, entry_date, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        entry.id,
-        userId,
-        entry.title,
-        entry.content,
-        entry.mood,
-        entry.entryDate,
-        entry.createdAt ?? null,
-        entry.updatedAt ?? null,
-      );
-    }
+  return serializeWrite(async () => {
+    const db = await getDb();
+    await db.withExclusiveTransactionAsync(async (txn) => {
+      await txn.runAsync('DELETE FROM diary_entries WHERE user_id = ?', userId);
+      for (const entry of entries) {
+        await txn.runAsync(
+          `INSERT INTO diary_entries (id, user_id, title, content, mood, entry_date, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          entry.id,
+          userId,
+          entry.title,
+          entry.content,
+          entry.mood,
+          entry.entryDate,
+          entry.createdAt ?? null,
+          entry.updatedAt ?? null,
+        );
+      }
+    });
   });
 }

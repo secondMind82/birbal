@@ -1,16 +1,19 @@
 import React, { useState } from 'react';
-import { StyleSheet, Switch, Text, View } from 'react-native';
+import { Switch, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button, ErrorText, FormScreen, Input } from '../components/ui';
 import { getErrorMessage } from '../api/client';
 import type { RootStackParamList } from '../navigation/types';
 import { useAuthStore } from '../store/authStore';
 import * as notesService from '../services/notesService';
-import { colors, spacing } from '../theme';
+import { spacing, useAppStyles, useAppTheme } from '../theme';
+import type { BirbalTheme } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'NewNote'>;
 
 export default function CreateNoteScreen({ navigation }: Props) {
+  const t = useAppTheme();
+  const styles = useAppStyles(makeStyles);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [pinned, setPinned] = useState(false);
@@ -43,7 +46,7 @@ export default function CreateNoteScreen({ navigation }: Props) {
 
       <View style={styles.pinRow}>
         <Text style={styles.pinLabel}>📌 Pin this note</Text>
-        <Switch value={pinned} onValueChange={setPinned} trackColor={{ true: colors.accent }} />
+        <Switch value={pinned} onValueChange={setPinned} trackColor={{ true: t.accent }} />
       </View>
 
       <ErrorText error={error} />
@@ -60,12 +63,12 @@ export default function CreateNoteScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (t: BirbalTheme) => ({
   pinRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 4,
   },
-  pinLabel: { fontSize: 15, fontWeight: '600', color: colors.text },
-});
+  pinLabel: { fontSize: 15, fontWeight: '600', color: t.text },
+} as const);

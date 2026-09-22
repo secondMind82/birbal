@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { Button, Chip, ErrorText, FormScreen, Input } from '../components/ui';
@@ -9,7 +9,8 @@ import type { Entity, Timeline } from '../models/types';
 import { useAuthStore } from '../store/authStore';
 import * as timelinesService from '../services/timelinesService';
 import * as entitiesService from '../services/entitiesService';
-import { colors, spacing } from '../theme';
+import { spacing, useAppStyles, useAppTheme } from '../theme';
+import type { BirbalTheme } from '../theme';
 
 type Props =
   | NativeStackScreenProps<RootStackParamList, 'AddEvent'>
@@ -21,6 +22,8 @@ export default function AddEventScreen(props: Props) {
 }
 
 function EventForm({ existing, onDone }: { existing?: Timeline; onDone: () => void }) {
+  const t = useAppTheme();
+  const styles = useAppStyles(makeStyles);
   const userId = useAuthStore((s) => s.user?.id);
   const [title, setTitle] = useState(existing?.title ?? '');
   const [description, setDescription] = useState(existing?.description ?? '');
@@ -103,7 +106,7 @@ function EventForm({ existing, onDone }: { existing?: Timeline; onDone: () => vo
                 <View style={{ opacity: linkedIds.includes(e.id) ? 1 : 0.45 }}>
                   <Chip
                     text={`@${e.name}`}
-                    color={linkedIds.includes(e.id) ? colors.accent : colors.textSecondary}
+                    color={linkedIds.includes(e.id) ? t.accent : t.textSecondary}
                   />
                 </View>
               </Pressable>
@@ -126,7 +129,7 @@ function EventForm({ existing, onDone }: { existing?: Timeline; onDone: () => vo
   );
 }
 
-const styles = StyleSheet.create({
-  label: { fontSize: 13, fontWeight: '600', color: colors.text, marginBottom: spacing.sm },
+const makeStyles = (t: BirbalTheme) => ({
+  label: { fontSize: 13, fontWeight: '600', color: t.text, marginBottom: spacing.sm },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.lg },
-});
+}) as const;

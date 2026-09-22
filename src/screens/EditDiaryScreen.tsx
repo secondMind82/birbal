@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button, ErrorText, FormScreen, Input } from '../components/ui';
 import { getErrorMessage } from '../api/client';
@@ -7,7 +7,8 @@ import type { RootStackParamList } from '../navigation/types';
 import type { DiaryEntry } from '../models/types';
 import { useAuthStore } from '../store/authStore';
 import * as diaryService from '../services/diaryService';
-import { colors, radii, spacing } from '../theme';
+import { radii, spacing, useAppStyles, useAppTheme } from '../theme';
+import type { BirbalTheme } from '../theme';
 
 const MOODS = ['HAPPY', 'CALM', 'EXCITED', 'GRATEFUL', 'SAD', 'ANXIOUS'];
 
@@ -21,6 +22,8 @@ export default function EditDiaryScreen(props: Props) {
 }
 
 function DiaryForm({ existing, onDone }: { existing?: DiaryEntry; onDone: () => void }) {
+  const t = useAppTheme();
+  const styles = useAppStyles(makeStyles);
   const [title, setTitle] = useState(existing?.title ?? '');
   const [content, setContent] = useState(existing?.content ?? '');
   const [mood, setMood] = useState(existing?.mood ?? 'HAPPY');
@@ -100,8 +103,8 @@ function DiaryForm({ existing, onDone }: { existing?: DiaryEntry; onDone: () => 
   );
 }
 
-const styles = StyleSheet.create({
-  label: { fontSize: 13, fontWeight: '600', color: colors.text, marginBottom: spacing.sm },
+const makeStyles = (t: BirbalTheme) => ({
+  label: { fontSize: 13, fontWeight: '600', color: t.text, marginBottom: spacing.sm },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.lg },
   moodChip: {
     paddingHorizontal: 14,
@@ -109,8 +112,8 @@ const styles = StyleSheet.create({
     borderRadius: radii.full,
     borderWidth: 1,
   },
-  moodChipSelected: { backgroundColor: colors.accent, borderColor: colors.accent },
-  moodChipUnselected: { backgroundColor: '#fff', borderColor: colors.border },
-  moodText: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
-  moodTextSelected: { color: '#fff' },
-});
+  moodChipSelected: { backgroundColor: t.accent, borderColor: t.accent },
+  moodChipUnselected: { backgroundColor: t.surface, borderColor: t.border },
+  moodText: { fontSize: 13, fontWeight: '600', color: t.textSecondary },
+  moodTextSelected: { color: t.onAccent },
+} as const);
