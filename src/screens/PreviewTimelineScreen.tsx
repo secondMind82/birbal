@@ -20,7 +20,7 @@ import { radii, spacing, useAppStyles, useAppTheme } from '../theme';
 import type { BirbalTheme } from '../theme';
 import type { DetailRow } from '../utils/activityParser';
 import { activityEmoji, parseActivity } from '../utils/activityParser';
-import { formatPaise } from '../utils/money';
+import { formatPaise, isReceivablePending } from '../utils/money';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PreviewTimeline'>;
 type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -103,7 +103,6 @@ export default function PreviewTimelineScreen({ route, navigation }: Props) {
   const [allTimelines, setAllTimelines] = useState<Timeline[]>([]);
   const [loadingRelated, setLoadingRelated] = useState(true);
   const [relatedError, setRelatedError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -184,15 +183,36 @@ export default function PreviewTimelineScreen({ route, navigation }: Props) {
       ? {
           emoji: '💰',
           label: 'Amount',
-          value: `${formatPaise(timeline.expenseAmountPaisa)} · ${timeline.expenseCategory ?? 'Other'}`,
+          value: `${formatPaise(timeline.expenseAmountPaisa)}${
+            timeline.moneyType === 'expense' &&
+            timeline.expenseCategory != null &&
+            timeline.expenseCategory !== 'Other'
+              ? ` · ${timeline.expenseCategory}`
+              : ''
+          }`,
         }
       : null;
-  const details = [dateRow, amountRow, ...parsed.details]
+  const statusLabel =
+    timeline.moneyType === 'receive'
+      ? isReceivablePending(timeline.receivableStatus)
+        ? 'Pending'
+        : timeline.receivableStatus === 'received'
+          ? 'Received'
+          : 'Ignored'
+      : timeline.moneyType === 'expense'
+        ? 'Paid'
+        : null;
+  const statusRow: DetailRow | null =
+    timeline.expenseAmountPaisa != null && statusLabel != null
+      ? { emoji: '💰', label: 'Status', value: statusLabel }
+      : null;
+  const details = [dateRow, statusRow, amountRow, ...parsed.details]
     .filter((row): row is DetailRow => !!row && row.value.trim().length > 0)
     .filter(
       (row, index, arr) =>
-        row.label !== 'Amount' ||
-        arr.findIndex((r) => r.label === 'Amount') === index,
+        (row.label !== 'Amount' &&
+          row.label !== 'Status') ||
+        arr.findIndex((r) => r.label === row.label) === index,
     );
   const essentialDetails = details.filter((row) => ESSENTIAL_DETAIL_LABELS.has(row.label));
   const extraDetails = details.filter((row) => !ESSENTIAL_DETAIL_LABELS.has(row.label));
@@ -237,11 +257,7 @@ export default function PreviewTimelineScreen({ route, navigation }: Props) {
 
   return (
     <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
-      <Pressable
-        style={styles.detailsCard}
-        onPress={() => setExpanded((v) => !v)}
-        accessibilityRole="button"
-        accessibilityLabel={expanded ? 'Collapse event details' : 'Expand event details'}>
+      <View style={styles.detailsCard}>
         <View style={styles.titleRow}>
           <Text style={styles.title} numberOfLines={2}>
             {heroEmoji}  {displayTitle}
@@ -268,12 +284,11 @@ export default function PreviewTimelineScreen({ route, navigation }: Props) {
           </View>
         ) : null}
 
-        {expanded ? (
-          <View style={styles.expandedSection}>
-            {description.trim().length > 0 ? (
-              <Text style={styles.description}>{description.trim()}</Text>
-            ) : null}
-            {extraDetails.length > 0 ? (
+        <View style={styles.expandedSection}>
+          {description.trim().length > 0 ? (
+            <Text style={styles.description}>{description.trim()}</Text>
+          ) : null}
+          {extraDetails.length > 0 ? (
               <View style={styles.detailsList}>
                 {extraDetails.map((row, i) => (
                   <View key={i} style={[styles.detailRow, i > 0 && styles.detailRowBorder]}>
@@ -305,15 +320,7 @@ export default function PreviewTimelineScreen({ route, navigation }: Props) {
               ) : null}
             </View>
           </View>
-        ) : null}
-        <View style={styles.chevron}>
-          <Ionicons
-            name={expanded ? 'chevron-up' : 'chevron-down'}
-            size={16}
-            color={t.textSecondary}
-          />
-        </View>
-      </Pressable>
+      </View>
 
       <View style={styles.relatedSection}>
         <Text style={styles.relatedTitle}>Related Timeline</Text>

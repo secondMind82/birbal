@@ -79,7 +79,7 @@ export default function PreviewEntityScreen({ route, navigation }: Props) {
   );
 
   // Money items for this entity: the linked timeline entries that carry a local
-  // money attribution (role = given-out / owed-back), never sent to the backend.
+  // money attribution (role = debit / credit), never sent to the backend.
   const moneyEntries = useMemo(
     () =>
       activities
@@ -88,18 +88,30 @@ export default function PreviewEntityScreen({ route, navigation }: Props) {
     [activities],
   );
 
-  const moneyGivenTotal = useMemo(
+  // Financial summary splits credits by lifecycle: only money actually back
+  // counts as Received; everything unresolved stays Pending. Debits = all
+  // expense-direction entries connected to this entity. Every value defaults to
+  // ₹0 when the entity has no transactions of that kind.
+  const creditPendingTotal = useMemo(
     () =>
       moneyEntries
-        .filter((t) => t.moneyType === 'expense')
+        .filter((t) => t.moneyType === 'receive' && isReceivablePending(t.receivableStatus))
         .reduce((sum, t) => sum + (t.expenseAmountPaisa ?? 0), 0),
     [moneyEntries],
   );
 
-  const moneyReceivedTotal = useMemo(
+  const creditReceivedTotal = useMemo(
     () =>
       moneyEntries
-        .filter((t) => t.moneyType === 'receive')
+        .filter((t) => t.moneyType === 'receive' && t.receivableStatus === 'received')
+        .reduce((sum, t) => sum + (t.expenseAmountPaisa ?? 0), 0),
+    [moneyEntries],
+  );
+
+  const debitTotal = useMemo(
+    () =>
+      moneyEntries
+        .filter((t) => t.moneyType === 'expense')
         .reduce((sum, t) => sum + (t.expenseAmountPaisa ?? 0), 0),
     [moneyEntries],
   );
@@ -156,42 +168,29 @@ export default function PreviewEntityScreen({ route, navigation }: Props) {
         ) : null}
       </View>
 
-      {moneyEntries.length > 0 ? (
-        <View style={styles.moneyBlock}>
-          <View style={styles.tlHeader}>
-            <Text style={styles.sectionTitle}>Money</Text>
-            <Text style={styles.entryCount}>
-              {moneyEntries.length} {moneyEntries.length === 1 ? 'item' : 'items'}
+      <View style={styles.moneyBlock}>
+        <View style={styles.summaryHeader}>
+          <Text style={styles.sectionTitle}>Financial Summary</Text>
+        </View>
+        <View style={styles.moneySummary}>
+          <View style={styles.moneyStat}>
+            <Text style={styles.moneyStatLabel}>Credit Pending</Text>
+            <Text style={[styles.moneyStatValue, { color: theme.danger }]}>
+              {formatPaise(creditPendingTotal)}
             </Text>
           </View>
-          <View style={styles.moneySummary}>
-            <View style={styles.moneyStat}>
-              <Text style={styles.moneyStatLabel}>Given</Text>
-              <Text
-                style={[styles.moneyStatValue, { color: theme.danger }]}>
-                {formatPaise(moneyGivenTotal)}
-              </Text>
-            </View>
-            <View style={styles.moneyStat}>
-              <Text style={styles.moneyStatLabel}>Received</Text>
-              <Text
-                style={[styles.moneyStatValue, { color: theme.success }]}>
-                {formatPaise(moneyReceivedTotal)}
-              </Text>
-            </View>
+          <View style={styles.moneyStat}>
+            <Text style={styles.moneyStatLabel}>Credit Received</Text>
+            <Text style={[styles.moneyStatValue, { color: theme.success }]}>
+              {formatPaise(creditReceivedTotal)}
+            </Text>
           </View>
-          <View style={styles.moneyCard}>
-            {moneyEntries.map((t, i) => (
-              <MoneyRow
-                key={t.id}
-                item={t}
-                isLast={i === moneyEntries.length - 1}
-                onMark={markReceivable}
-              />
-            ))}
+          <View style={styles.moneyStat}>
+            <Text style={styles.moneyStatLabel}>Total Debit</Text>
+            <Text style={styles.moneyStatValue}>{formatPaise(debitTotal)}</Text>
           </View>
         </View>
-      ) : null}
+      </View>
 
       <View style={styles.tlHeader}>
         <Text style={styles.sectionTitle}>Timeline</Text>
@@ -212,27 +211,40 @@ export default function PreviewEntityScreen({ route, navigation }: Props) {
         <Text style={styles.noActivities}>No timeline activity yet.</Text>
       ) : (
         <View style={styles.timeline}>
-          {activities.map((t, index) => (
-            <TimelineRow
-              key={t.id}
-              item={t}
-              isLast={index === activities.length - 1}
-            />
-          ))}
+          {activities.map((t, index) =>
+            t.moneyType != null && t.expenseAmountPaisa != null ? (
+              <MoneyCard
+                key={t.id}
+                item={t}
+                isLast={index === activities.length - 1}
+                onMark={markReceivable}
+                onOpen={(item) => navigation.navigate('PreviewTimeline', { timeline: item })}
+              />
+            ) : (
+              <TimelineRow
+                key={t.id}
+                item={t}
+                isLast={index === activities.length - 1}
+                onOpen={(item) => navigation.navigate('PreviewTimeline', { timeline: item })}
+              />
+            ),
+          )}
         </View>
       )}
     </ScrollView>
   );
 }
 
-function MoneyRow({
+function MoneyCard({
   item,
   isLast,
   onMark,
+  onOpen,
 }: {
   item: Timeline;
   isLast: boolean;
   onMark?: (item: Timeline, status: string) => void;
+  onOpen: (item: Timeline) => void;
 }) {
   const theme = useAppTheme();
   const styles = useAppStyles(makeStyles);
@@ -240,61 +252,73 @@ function MoneyRow({
   const tone = given ? theme.danger : theme.success;
   const receive = !given;
   const settled = receive && !isReceivablePending(item.receivableStatus);
+  const statusText = given
+    ? 'Paid'
+    : isReceivablePending(item.receivableStatus)
+      ? 'Pending'
+      : item.receivableStatus;
+  const tagText = given
+    ? `EXPENSE · ${item.expenseCategory ?? 'Other'} · ${statusText}`
+    : `MONEY RECEIVABLE · ${statusText}`;
   return (
-    <View style={[styles.moneyRow, !isLast && styles.moneyRowBorder]}>
-      <View style={[styles.moneyIcon, { backgroundColor: tone }]}>
-        <Text style={styles.moneyEmoji}>{given ? '💸' : '💰'}</Text>
-      </View>
-      <View style={styles.moneyBody}>
-        <Text style={styles.moneyTitle} numberOfLines={1}>
-          {item.description?.trim() || item.title}
-        </Text>
-        <Text style={styles.moneyMeta}>{formatDate(item.eventDate)}</Text>
-      </View>
-      <View style={styles.moneyRight}>
-        <Text style={[styles.moneyAmount, { color: tone }]}>
-          {given ? '-' : '+'}
-          {formatPaise(item.expenseAmountPaisa!)}
-        </Text>
-        {given ? (
-          <Text style={styles.moneyStatus}>Given</Text>
-        ) : settled ? (
-          <Text
-            style={[
-              styles.moneyStatus,
-              item.receivableStatus === 'received'
-                ? { color: theme.success, fontWeight: '800' }
-                : { color: theme.textSecondary },
-            ]}>
-            {item.receivableStatus}
-          </Text>
-        ) : onMark ? (
-          <View style={styles.moneyActions}>
-            <Pressable
-              style={[styles.moneyChip, { borderColor: theme.success }]}
-              onPress={() => onMark(item, 'received')}
-              hitSlop={6}>
-              <Text style={[styles.moneyChipText, { color: theme.success }]}>✓ Received</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.moneyChip, { borderColor: theme.border }]}
-              onPress={() => onMark(item, 'ignored')}
-              hitSlop={6}>
-              <Text style={[styles.moneyChipText, { color: theme.textSecondary }]}>✕ Ignore</Text>
-            </Pressable>
+    <View style={[styles.moneyCard, !isLast && styles.moneyCardGap]}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Open timeline detail"
+        style={({ pressed }) => pressed && { opacity: 0.7 }}
+        onPress={() => onOpen(item)}>
+        <View style={styles.moneyRow}>
+          <View style={[styles.moneyIcon, { backgroundColor: tone }]}>
+            <Text style={styles.moneyEmoji}>{given ? '💸' : '💰'}</Text>
           </View>
-        ) : (
-          <Text style={styles.moneyStatus}>Pending</Text>
-        )}
-      </View>
+          <View style={styles.moneyBody}>
+            <Text style={styles.moneyTitle} numberOfLines={2}>
+              {item.description?.trim() || item.title}
+            </Text>
+            <Text style={[styles.moneyTag, { color: tone }]}>{tagText}</Text>
+            <Text style={styles.moneyMeta}>{formatDate(item.eventDate)}</Text>
+          </View>
+          <View style={styles.moneyRight}>
+            <Text style={[styles.moneyAmount, { color: tone }]}>
+              {given ? '-' : '+'}
+              {formatPaise(item.expenseAmountPaisa!)}
+            </Text>
+          </View>
+        </View>
+      </Pressable>
+      {receive &&
+      !settled &&
+      onMark ? (
+        <View style={styles.moneyActions}>
+          <Pressable
+            style={[styles.moneyChip, { borderColor: theme.success }]}
+            onPress={() => onMark(item, 'received')}
+            hitSlop={6}>
+            <Text style={[styles.moneyChipText, { color: theme.success }]}>✓ Received</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.moneyChip, { borderColor: theme.border }]}
+            onPress={() => onMark(item, 'ignored')}
+            hitSlop={6}>
+            <Text style={[styles.moneyChipText, { color: theme.textSecondary }]}>✕ Ignore</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </View>
   );
 }
 
-function TimelineRow({ item, isLast }: { item: Timeline; isLast: boolean }) {
+function TimelineRow({
+  item,
+  isLast,
+  onOpen,
+}: {
+  item: Timeline;
+  isLast: boolean;
+  onOpen: (item: Timeline) => void;
+}) {
   const theme = useAppTheme();
   const styles = useAppStyles(makeStyles);
-  const [expanded, setExpanded] = useState(false);
   return (
     <View style={styles.row}>
       <View style={styles.rail}>
@@ -303,25 +327,21 @@ function TimelineRow({ item, isLast }: { item: Timeline; isLast: boolean }) {
       </View>
       <Pressable
         accessibilityRole="button"
+        accessibilityLabel="Open timeline detail"
         style={({ pressed }) => [styles.entryCard, pressed && { opacity: 0.7 }]}
-        onPress={() => setExpanded((v) => !v)}>
+        onPress={() => onOpen(item)}>
         <View style={styles.entryHeader}>
           <Text style={styles.entryDate} numberOfLines={1}>{formatDate(item.eventDate)}</Text>
           <View style={styles.entryTimeWrap}>
             <Text style={styles.entryTime}>{formatTime(item.eventDate)}</Text>
-            <Ionicons
-              name={expanded ? 'chevron-up' : 'chevron-down'}
-              size={16}
-              color={theme.textSecondary}
-            />
           </View>
         </View>
-        <Text style={styles.entryTitle} numberOfLines={expanded ? undefined : 1}>
+        <Text style={styles.entryTitle} numberOfLines={1}>
           {item.title}
         </Text>
         {item.description &&
         item.description.trim() !== item.title.trim() ? (
-          <Text style={styles.entryDesc} numberOfLines={expanded ? undefined : 2}>
+          <Text style={styles.entryDesc} numberOfLines={2}>
             {item.description}
           </Text>
         ) : null}
@@ -389,7 +409,12 @@ const makeStyles = (t: BirbalTheme) => ({
     marginTop: spacing.md,
   },
   moneyBlock: { marginTop: spacing.lg },
-  moneySummary: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md },
+  summaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  moneySummary: { flexDirection: 'row', gap: spacing.md },
   moneyStat: {
     flex: 1,
     backgroundColor: t.surfaceVariant,
@@ -397,17 +422,17 @@ const makeStyles = (t: BirbalTheme) => ({
     paddingVertical: spacing.md,
     alignItems: 'center',
   },
-  moneyStatLabel: { fontSize: 12, fontWeight: '600', color: t.textSecondary },
-  moneyStatValue: { fontSize: 18, fontWeight: '800', marginTop: 2 },
+  moneyStatLabel: { fontSize: 11, fontWeight: '700', color: t.textSecondary },
+  moneyStatValue: { fontSize: 16, fontWeight: '800', marginTop: 2 },
   moneyCard: {
     backgroundColor: t.surface,
     borderRadius: radii.md,
     borderWidth: 1,
     borderColor: t.border,
-    paddingHorizontal: spacing.md,
+    padding: spacing.md,
   },
-  moneyRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.md },
-  moneyRowBorder: { borderBottomWidth: 1, borderBottomColor: t.borderFaint },
+  moneyCardGap: { marginBottom: spacing.md },
+  moneyRow: { flexDirection: 'row', alignItems: 'center' },
   moneyIcon: {
     width: 32,
     height: 32,
@@ -419,24 +444,25 @@ const makeStyles = (t: BirbalTheme) => ({
   moneyEmoji: { fontSize: 13 },
   moneyBody: { flex: 1, marginRight: spacing.sm },
   moneyTitle: { fontSize: 14, fontWeight: '600', color: t.text },
+  moneyTag: { fontSize: 11, fontWeight: '700', marginTop: 3 },
   moneyMeta: { fontSize: 11, color: t.textSecondary, marginTop: 2 },
   moneyRight: { alignItems: 'flex-end' },
-  moneyAmount: { fontSize: 14, fontWeight: '800' },
-  moneyActions: { flexDirection: 'row', gap: spacing.xs, marginTop: 4 },
+  moneyAmount: { fontSize: 15, fontWeight: '800' },
+  moneyActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: t.borderFaint,
+  },
   moneyChip: {
     borderWidth: 1,
     borderRadius: radii.full,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 4,
   },
-  moneyChipText: { fontSize: 10, fontWeight: '700' },
-  moneyStatus: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: t.textSecondary,
-    marginTop: 2,
-    textTransform: 'capitalize',
-  },
+  moneyChipText: { fontSize: 11, fontWeight: '700' },
   tlHeader: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -119,7 +119,10 @@ export async function refreshTimelines(userId?: string): Promise<Timeline[]> {
   const uid = requireUserId(userId);
   const timelines = await api.getTimelines();
   await timelinesRepository.replaceAll(uid, timelines);
-  return timelines;
+  // Return the persisted rows, not the raw server payload: local-only money
+  // attribution (amount/direction/receivable status) lives in SQLite and is
+  // absent from the API response, so callers must read it back from the DB.
+  return timelinesRepository.getAll(uid);
 }
 
 export async function getTimelines(userId?: string): Promise<Timeline[]> {

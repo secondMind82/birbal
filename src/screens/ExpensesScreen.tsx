@@ -95,12 +95,40 @@ function ExpenseRow({ expense, onDelete }: { expense: Expense; onDelete: () => v
         <Text style={styles.rowTitle} numberOfLines={1}>
           {expense.title}
         </Text>
-        <Text style={styles.rowCategory}>{expense.expenseCategory}</Text>
+        <Text style={styles.rowCategory}>
+          {expense.expenseCategory} · Paid
+        </Text>
       </View>
       <Text style={styles.rowAmount}>{formatPaise(expense.expenseAmountPaisa)}</Text>
       <Pressable accessibilityLabel="Delete expense" hitSlop={8} onPress={onDelete}>
         <Ionicons name="trash-outline" size={17} color={t.textSecondary} />
       </Pressable>
+    </View>
+  );
+}
+
+function ResolvedCreditRow({ item, isLast }: { item: Timeline; isLast: boolean }) {
+  const t = useAppTheme();
+  const styles = useAppStyles(makeStyles);
+  const received = item.receivableStatus === 'received';
+  return (
+    <View style={[styles.receiveRow, !isLast && styles.catRowBorder]}>
+      <View style={styles.receiveDot}>
+        <Text style={styles.receiveEmoji}>✔️</Text>
+      </View>
+      <View style={styles.receiveBody}>
+        <Text style={styles.receiveTitle} numberOfLines={1}>
+          {item.description?.trim() || item.title}
+        </Text>
+        <Text
+          style={[
+            styles.rowCategory,
+            received ? { color: t.success, fontWeight: '700' } : { color: t.textSecondary },
+          ]}>
+          {received ? 'Received' : 'Ignored'}
+        </Text>
+      </View>
+      <Text style={styles.receiveAmount}>{formatPaise(item.expenseAmountPaisa!)}</Text>
     </View>
   );
 }
@@ -225,6 +253,35 @@ export default function ExpensesScreen() {
         .filter((r) => localMonthKey(new Date(r.eventDate)) === month)
         .sort((a, b) => b.eventDate.localeCompare(a.eventDate)),
     [receivables, month],
+  );
+
+  // All credit rows for the month (pending + resolved) backing the Credit totals
+  // and the resolved "Credit History" section below the inbox.
+  const monthCredits = useMemo(
+    () =>
+      receivables
+        .filter((r) => r.expenseAmountPaisa != null)
+        .filter((r) => localMonthKey(new Date(r.eventDate)) === month)
+        .sort((a, b) => b.eventDate.localeCompare(a.eventDate)),
+    [receivables, month],
+  );
+
+  const creditTotal = useMemo(
+    () => monthCredits.reduce((acc, r) => acc + (r.expenseAmountPaisa ?? 0), 0),
+    [monthCredits],
+  );
+
+  const pendingCreditTotal = useMemo(
+    () =>
+      monthCredits
+        .filter((r) => isReceivablePending(r.receivableStatus))
+        .reduce((acc, r) => acc + (r.expenseAmountPaisa ?? 0), 0),
+    [monthCredits],
+  );
+
+  const resolvedCredits = useMemo(
+    () => monthCredits.filter((r) => !isReceivablePending(r.receivableStatus)),
+    [monthCredits],
   );
 
   const monthTotal = useMemo(
@@ -354,6 +411,11 @@ export default function ExpensesScreen() {
               <StatCard label="This Year" amount={formatPaise(stats.year)} />
             </View>
 
+            <View style={styles.statsGrid}>
+              <StatCard label="Total Credits (Month)" amount={formatPaise(creditTotal)} />
+              <StatCard label="Pending Receivables" amount={formatPaise(pendingCreditTotal)} />
+            </View>
+
             {categoryTotals.length > 0 ? (
               <View style={styles.sectionBlock}>
                 <Text style={styles.sectionTitle}>Category Breakdown</Text>
@@ -380,6 +442,21 @@ export default function ExpensesScreen() {
                       isLast={i === monthReceivables.length - 1}
                       onReceive={() => markReceivable(r, 'received')}
                       onIgnore={() => markReceivable(r, 'ignored')}
+                    />
+                  ))}
+                </Card>
+              </View>
+            ) : null}
+
+            {resolvedCredits.length > 0 ? (
+              <View style={styles.sectionBlock}>
+                <Text style={styles.sectionTitle}>Credit History</Text>
+                <Card>
+                  {resolvedCredits.map((r, i) => (
+                    <ResolvedCreditRow
+                      key={r.id}
+                      item={r}
+                      isLast={i === resolvedCredits.length - 1}
                     />
                   ))}
                 </Card>

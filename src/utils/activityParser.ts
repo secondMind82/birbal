@@ -1,4 +1,4 @@
-import { parseAmountToPaise, formatPaise } from './money';
+import { detectExpenseCategory, parseAmountToPaise, formatPaise } from './money';
 export interface DetailRow {
   emoji: string;
   label: string;
@@ -22,6 +22,9 @@ export interface MoneyDetection {
   role: 'receive' | 'expense';
   amountPaise: number;
   status?: string;
+  // Best-guess expense category from the text ('Grocery', 'Food', ...). Credits
+  // (receive) never take a category — null keeps the Expenses view clean.
+  category?: string | null;
 }
 
 const DAY_MAP: Record<string, string> = {
@@ -70,6 +73,19 @@ function moneyAmountPaise(text: string): number {
   const raw = rupee?.[1] ?? rs?.[1];
   if (!raw) return 0;
   return parseAmountToPaise(`₹${raw.replace(/,/g, '')}`) ?? 0;
+}
+
+// Credit phrases state the amount as a BARE number ("will be credit 6000",
+// "credit to shaaf 2000") — no ₹/rs/rupees indicator. Read only the digits that
+// sit inside a credit context, so a plain meeting note never becomes money. A
+// trailing date/time fragment ("credit 23/09", "credit 1:30") or "credit card"
+// rejects the match. Returns paise (0 when absent).
+function creditAmountPaise(text: string): number {
+  const m = text.match(
+    /\bcredit(?:ed)?\b[\sA-Za-z]{0,26}?\b(\d{1,7}(?:,\d{3})*)\b(?!\s*[-/.:])/i,
+  );
+  if (!m || /\bcredit\s+card\b/i.test(m[0])) return 0;
+  return parseAmountToPaise(`₹${m[1].replace(/,/g, '')}`) ?? 0;
 }
 
 function isReceivableText(text: string): boolean {
@@ -238,7 +254,7 @@ export function parseActivity(text: string, person?: string): ParsedActivity {
         ...details,
       ],
       message: cleanText,
-      money: { role: 'receive', amountPaise, status },
+      money: { role: 'receive', amountPaise, status, category: null },
     };
   }
 
@@ -257,8 +273,30 @@ export function parseActivity(text: string, person?: string): ParsedActivity {
         ...details,
       ],
       message: cleanText,
-      money: { role: 'expense', amountPaise, status: 'paid' },
+      money: { role: 'expense', amountPaise, status: 'paid', category: detectExpenseCategory(cleanText) },
     };
+  }
+  // Money extended as CREDIT ("Credit to shaaf 2000", "shaaf will be credit
+  // 6000") is money owed BACK to the user, so it maps to the 'receive' role.
+  // The amount comes from an explicit indicator or the credit-context bare
+  // number. A credit WITHOUT an amount stays a plain note — no record is ever
+  // created from a figureless mention. Status: 'received' only when the wording
+  // says the money already came back, otherwise 'pending'.
+  if (/\bcredit(?:ed)?\b/i.test(text)) {
+    const amountPaise = moneyAmountPaise(text) || creditAmountPaise(text);
+    if (amountPaise > 0) {
+      const status = MONEY_RETURNED_RE.test(text) ? 'received' : 'pending';
+      return {
+        title: '💰 MONEY RECEIVABLE',
+        matched: true,
+        details: [
+          { emoji: '💰', label: 'Amount', value: formatPaise(amountPaise) },
+          ...details,
+        ],
+        message: cleanText,
+        money: { role: 'receive', amountPaise, status, category: null },
+      };
+    }
   }
   if (/\b(pay|payment|owes|paid|receive|send|transfer)\b/i.test(lower)) {
     const amtMatch = text.match(/₹?\s*(\d+)/) || text.match(/(\d+)\s*(?:rs\.?|rupees)/i);

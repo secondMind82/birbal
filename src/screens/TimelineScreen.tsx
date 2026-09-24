@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,8 +18,9 @@ import { Card, EmptyState } from '../components/ui';
 import type { Timeline } from '../models/types';
 import { useAuthStore } from '../store/authStore';
 import * as timelinesService from '../services/timelinesService';
+import * as expensesService from '../services/expensesService';
 import { activityEmoji, parseActivity } from '../utils/activityParser';
-import { formatPaise } from '../utils/money';
+import { formatPaise, isReceivablePending, localMonthKey } from '../utils/money';
 import { radii, shadows, spacing, useAppStyles, useAppTheme } from '../theme';
 import type { BirbalTheme } from '../theme';
 
@@ -100,6 +101,15 @@ export default function TimelineScreen() {
     navigation.navigate('EditTimeline', { timeline });
   };
 
+  const markReceivable = (timeline: Timeline, status: string) => {
+    setEvents((prev) =>
+      prev.map((e) => (e.id === timeline.id ? { ...e, receivableStatus: status } : e)),
+    );
+    expensesService
+      .setReceivableStatus(userId, timeline.id, status)
+      .catch((e) => Alert.alert('Error', getErrorMessage(e)));
+  };
+
   const handleDelete = (timeline: Timeline) => {
     setMenu(null);
     Alert.alert('Delete Event', `"${timeline.title}" will be deleted permanently.`, [
@@ -116,6 +126,34 @@ export default function TimelineScreen() {
       },
     ]);
   };
+
+  // Compact financial strip for the current month. Expenses come ONLY from
+  // DEBIT rows (a credit/receivable never adds to a spend total), and pending
+  // receivables mirror the unresolved money-owed-back queue.
+  const summary = useMemo(() => {
+    const monthKey = localMonthKey(new Date());
+    const monthExpenses = events.filter(
+      (e) =>
+        e.expenseAmountPaisa != null &&
+        e.moneyType !== 'receive' &&
+        localMonthKey(new Date(e.eventDate)) === monthKey,
+    );
+    const monthTotal = monthExpenses.reduce((acc, e) => acc + (e.expenseAmountPaisa ?? 0), 0);
+    const pendingReceivable = events
+      .filter(
+        (e) =>
+          e.moneyType === 'receive' &&
+          e.expenseAmountPaisa != null &&
+          isReceivablePending(e.receivableStatus) &&
+          localMonthKey(new Date(e.eventDate)) === monthKey,
+      )
+      .reduce((acc, e) => acc + (e.expenseAmountPaisa ?? 0), 0);
+    return {
+      monthTotal,
+      monthCount: monthExpenses.length,
+      pendingReceivable,
+    };
+  }, [events]);
 
   if (loading) {
     return (
@@ -134,6 +172,26 @@ export default function TimelineScreen() {
           contentContainerStyle={styles.container}
           data={events}
           keyExtractor={(item) => `e-${item.id}`}
+          ListHeaderComponent={
+            <View style={styles.summaryCard}>
+              <View style={styles.summaryTile}>
+                <Text style={styles.summaryLabel}>Total Expenses (Month)</Text>
+                <Text style={styles.summaryAmount}>{formatPaise(summary.monthTotal)}</Text>
+                <Text style={styles.summaryMeta}>
+                  {summary.monthCount}{' '}
+                  {summary.monthCount === 1 ? 'transaction' : 'transactions'}
+                </Text>
+              </View>
+              <View style={styles.summaryDivider} />
+              <View style={styles.summaryTile}>
+                <Text style={styles.summaryLabel}>Pending Receivables</Text>
+                <Text style={[styles.summaryAmount, { color: t.danger }]}>
+                  {formatPaise(summary.pendingReceivable)}
+                </Text>
+                <Text style={styles.summaryMeta}>money owed back to you</Text>
+              </View>
+            </View>
+          }
           ListEmptyComponent={
             error ? (
               <Text style={styles.error}>{error}</Text>
@@ -145,6 +203,7 @@ export default function TimelineScreen() {
             <TimelineCard
               event={item}
               onOpenMenu={setMenu}
+              onMark={(t, status) => markReceivable(t, status)}
             />
           )}
         />
@@ -175,18 +234,46 @@ export default function TimelineScreen() {
 function TimelineCard({
   event,
   onOpenMenu,
+  onMark,
 }: {
   event: Timeline;
   onOpenMenu: (anchor: MenuAnchor) => void;
+  onMark?: (timeline: Timeline, status: string) => void;
 }) {
   const t = useAppTheme();
   const styles = useAppStyles(makeStyles);
-  const [expanded, setExpanded] = useState(false);
+  const navigation = useNavigation<Nav>();
   const dotsRef = useRef<View>(null);
 
   const description = event.description ?? '';
   const parsed = parseActivity(description);
   const hasPlaceTag = /#\w/.test(description);
+
+  const isIncome = event.moneyType === 'receive';
+  const isSpent = event.moneyType === 'expense';
+  const pendingCredit = isIncome && isReceivablePending(event.receivableStatus);
+  const statusLabel = isIncome
+    ? isReceivablePending(event.receivableStatus)
+      ? 'Pending'
+      : event.receivableStatus === 'received'
+        ? 'Received'
+        : 'Ignored'
+    : 'Paid';
+  const moneyLine =
+    event.expenseAmountPaisa != null
+      ? isIncome
+        ? `MONEY RECEIVABLE · ${formatPaise(event.expenseAmountPaisa)} · ${statusLabel}`
+        : `EXPENSE · ${formatPaise(event.expenseAmountPaisa)} · ${statusLabel}${
+            event.expenseCategory && event.expenseCategory !== 'Other'
+              ? ` · ${event.expenseCategory}`
+              : ''
+          }`
+      : '';
+  const statusTone = isIncome
+    ? isReceivablePending(event.receivableStatus)
+      ? t.danger
+      : t.success
+    : t.accent;
 
   const category = parsed.matched
     ? parsed.title
@@ -231,7 +318,8 @@ function TimelineCard({
     <Card style={styles.card}>
       <Pressable
         accessibilityRole="button"
-        onPress={() => setExpanded((v) => !v)}>
+        accessibilityLabel="Open timeline detail"
+        onPress={() => navigation.navigate('PreviewTimeline', { timeline: event })}>
         <View style={styles.headerRow}>
           <View style={styles.iconTile}>
             <Text style={styles.iconText}>{emoji}</Text>
@@ -248,24 +336,14 @@ function TimelineCard({
               <Ionicons name="ellipsis-vertical" size={18} color={t.textSecondary} />
             </Pressable>
           </View>
-          <Pressable
-            accessibilityLabel={expanded ? 'Collapse timeline' : 'Expand timeline'}
-            hitSlop={8}
-            onPress={() => setExpanded((v) => !v)}>
-            <Ionicons
-              name={expanded ? 'chevron-up' : 'chevron-down'}
-              size={18}
-              color={t.textSecondary}
-            />
-          </Pressable>
         </View>
 
         {headline ? (
-          <Text style={styles.headline} numberOfLines={expanded ? undefined : 2}>
+          <Text style={styles.headline} numberOfLines={2}>
             {headline}
           </Text>
         ) : null}
-        <Text style={styles.bodyText} numberOfLines={expanded ? undefined : 3}>
+        <Text style={styles.bodyText} numberOfLines={3}>
           {body}
         </Text>
 
@@ -280,14 +358,31 @@ function TimelineCard({
         ) : null}
 
         <View style={styles.stampRow}>
-          {event.expenseAmountPaisa != null ? (
-            <Text style={styles.amountText}>
-              {formatPaise(event.expenseAmountPaisa)} · {event.expenseCategory ?? 'Other'}
-            </Text>
+          {moneyLine ? (
+            <Text style={[styles.amountText, { color: statusTone }]}>{moneyLine}</Text>
           ) : null}
           <Text style={styles.stampText}>{stamp}</Text>
         </View>
       </Pressable>
+
+      {pendingCredit && onMark ? (
+        <View style={styles.moneyActions}>
+          <Pressable
+            accessibilityLabel="Mark received"
+            style={[styles.moneyChip, { borderColor: t.success }]}
+            onPress={() => onMark(event, 'received')}
+            hitSlop={6}>
+            <Text style={[styles.moneyChipText, { color: t.success }]}>✓ Received</Text>
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Ignore receivable"
+            style={[styles.moneyChip, { borderColor: t.border }]}
+            onPress={() => onMark(event, 'ignored')}
+            hitSlop={6}>
+            <Text style={[styles.moneyChipText, { color: t.textSecondary }]}>✕ Ignore</Text>
+          </Pressable>
+        </View>
+      ) : null}
     </Card>
   );
 }
@@ -296,6 +391,37 @@ const makeStyles = (t: BirbalTheme) => ({
   flex: { flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   container: { padding: spacing.lg, paddingBottom: 80, flexGrow: 1 },
+  summaryCard: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    backgroundColor: t.surface,
+    borderRadius: radii.lg,
+    borderWidth: 1,
+    borderColor: t.border,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.lg,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
+  },
+  summaryTile: { flex: 1 },
+  summaryDivider: {
+    width: 1,
+    backgroundColor: t.borderFaint,
+    marginHorizontal: spacing.lg,
+  },
+  summaryLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: t.textSecondary,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  summaryAmount: { fontSize: 18, fontWeight: '800', color: t.text, marginTop: 2 },
+  summaryMeta: { fontSize: 11, color: t.textSecondary, marginTop: 2 },
   card: {
     marginBottom: spacing.md,
     padding: spacing.lg,
@@ -355,6 +481,19 @@ const makeStyles = (t: BirbalTheme) => ({
     marginBottom: 3,
   },
   stampText: { fontSize: 11, color: t.textSecondary, letterSpacing: 0.1 },
+  moneyActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    justifyContent: 'flex-end',
+  },
+  moneyChip: {
+    borderWidth: 1,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 4,
+  },
+  moneyChipText: { fontSize: 11, fontWeight: '700' },
   backdrop: { flex: 1, backgroundColor: t.scrim },
   menu: {
     position: 'absolute',

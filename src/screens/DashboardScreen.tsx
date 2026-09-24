@@ -225,7 +225,13 @@ export default function DashboardScreen() {
     setLoading(true);
     setError(null);
     try {
-      if (!text.includes('@') && !text.includes('#')) {
+      // Money phrasing with an explicit amount is a strong timeline signal:
+      // route it to the timeline branch (and thus Expenses) even without an
+      // @/# mention, instead of silently saving it as a Note.
+      const parsedEarly = parseActivity(text);
+      const isMoneyPost = !!(parsedEarly.money && parsedEarly.money.amountPaise > 0);
+
+      if (!text.includes('@') && !text.includes('#') && !isMoneyPost) {
         await notesService.createNote(userId, {
           title: defaultTitle(text),
           content: text,
@@ -291,6 +297,15 @@ export default function DashboardScreen() {
 
         const parsed = parseActivity(description, mentions[0]?.slice(1));
         const title = parsed.matched && parsed.title ? parsed.title : defaultTitle(description);
+        const parsedMoney =
+          parsed.money && parsed.money.amountPaise > 0
+            ? {
+                role: parsed.money.role,
+                amountPaise: parsed.money.amountPaise,
+                category: parsed.money.category ?? null,
+                status: parsed.money.status,
+              }
+            : undefined;
 
         await timelinesService.createTimeline(userId, {
           title,
@@ -298,7 +313,7 @@ export default function DashboardScreen() {
           eventDate: extractEventDate(text).toISOString(),
           showOnCalendar: true,
           entityIds: [...new Set(linkedIds)],
-        });
+        }, parsedMoney);
       }
       setPostText('');
       await fetchAll();

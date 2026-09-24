@@ -24,6 +24,29 @@ export function isExpenseCategory(value: string): value is ExpenseCategory {
   return (EXPENSE_CATEGORIES as readonly string[]).includes(value);
 }
 
+// Keyword hints per category (English + common Hinglish spellings). First
+// category with any hit wins, so priority order matters ('food' before bills).
+const CATEGORY_KEYWORDS: ReadonlyArray<readonly [ExpenseCategory, readonly string[]]> = [
+  ['Grocery', ['grocery', 'grocerie', 'kirana', 'sabzi', 'vegetable', 'supermarket', 'dmart', 'd-mart', 'big bazaar', 'ration', 'milk']],
+  ['Food', ['restaurant', 'cafe', 'café', 'dinner', 'lunch', 'breakfast', 'brunch', 'snack', 'food', 'pizza', 'biryani', 'chai', 'coffee', 'swiggy', 'zomato', 'eat']],
+  ['Transport', ['fuel', 'petrol', 'diesel', 'cab', 'uber', 'ola', 'auto', 'taxi', 'bus', 'train', 'metro', 'rickshaw', 'bike', 'toll', 'parking', 'transport']],
+  ['Shopping', ['shopping', 'clothes', 'dress', 'shirt', 'kurta', 'saree', 'shoes', 'mall', 'amazon', 'flipkart', 'jeans', 'trousers']],
+  ['Bills', ['electricity', 'electric', 'water', 'gas', 'internet', 'wifi', 'recharge', 'mobile bill', 'phone', 'rent', 'emi', 'bill']],
+  ['Health', ['medical', 'hospital', 'doctor', 'medicine', 'medicin', 'chemist', 'pharmacy', 'gym', 'clinic', 'health']],
+  ['Entertainment', ['movie', 'cinema', 'concert', 'netflix', 'entertainment', 'game', 'cricket', 'football', 'holiday', 'trip']],
+];
+
+// Picks the most likely expense category from free text ("bought groceries" ->
+// 'Grocery'). Falls back to 'Other' when nothing matches; credits (role
+// 'receive') keep null and never take a category.
+export function detectExpenseCategory(text: string | null | undefined): string {
+  const lower = (' ' + (text ?? '').toLowerCase() + ' ');
+  for (const [category, keywords] of CATEGORY_KEYWORDS) {
+    if (keywords.some((kw) => lower.includes(kw))) return category;
+  }
+  return 'Other';
+}
+
 // Direction values for the local money_type column on timeline rows.
 export const MONEY_TYPES: readonly MoneyType[] = ['expense', 'receive'];
 
