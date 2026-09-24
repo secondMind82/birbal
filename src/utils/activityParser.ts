@@ -1,3 +1,4 @@
+import { parseAmountToPaise, formatPaise } from './money';
 export interface DetailRow {
   emoji: string;
   label: string;
@@ -9,6 +10,18 @@ export interface ParsedActivity {
   matched: boolean;
   details: DetailRow[];
   message: string;
+  // Optional structured money classification. 'receive' = money owed back TO the
+  // user (rendered as Pending + Receive/Ignore in the Timeline); 'expense' =
+  // money the user paid out. Amount is in paise (0 when the text carries none).
+  // Status is the derived money lifecycle: CREDIT default 'pending', auto-'received'
+  // when the text says the money came back, DEBIT 'paid'.
+  money?: MoneyDetection;
+}
+
+export interface MoneyDetection {
+  role: 'receive' | 'expense';
+  amountPaise: number;
+  status?: string;
 }
 
 const DAY_MAP: Record<string, string> = {
@@ -22,6 +35,49 @@ const DAY_MAP: Record<string, string> = {
   today: 'Today',
   tomorrow: 'Tomorrow',
 };
+
+const MONEY_TERMS =
+  /\b(?:money|cash|rupees?|rs\.?|paisa|amount|refund)\b|\b\d[\d,]*\b|₹/i;
+
+// Money owed BACK to the user: explicit pay-back / give-back / return phrases, or
+// a monetary phrase ("take ₹5000 from me ... give it back"). Kept tight so normal
+// notes ("give me a call back") never classify as receivable.
+const RECEIVABLE_RE =
+  /\b(?:pay\s+me(?:\s+back)?|will\s+give\s+me\b|refund|borrow(?:ed|s)?)\b|(?:money|cash|rupees|rs\.?|paisa)\b[^.!?;]{0,30}\b(?:back|return)\b|(?:return|give)\b[^.!?;]{0,30}\b(?:back\s+the\s+)?money\b/i;
+
+const EXPENSE_RE =
+  /\b(?:bought|purchased?|spent|spend|shopping|cost|paid\s+for)\b/i;
+
+// Money PAID OUT to someone: an explicit give/lend verb immediately followed by
+// an explicit amount indicator. The amount is required so "I gave him a call" is
+// never classified as money.
+const MONEY_GIVEN_RE =
+  /\b(?:gave|given|lent|loaned)\b[^.!?;]{0,40}(?:₹|rs\.?|rupees|paisa)\s*\d/i;
+
+// Money RETURNED to the user: an explicit return/repaid/paid-back verb with an
+// explicit amount ("shaaf returned ₹2000" = credit). Amount required so "she
+// returned the money" stays a plain note when no figure is stated.
+const MONEY_RETURNED_RE =
+  /\b(?:returned?|repaid|paid\s+back|gave\s+back)\b[^.!?;]{0,40}(?:₹|rs\.?|rupees|paisa)\s*\d/i;
+
+// Amount is only ever read from an explicit money indicator (₹, rs, rupees,
+// paisa) — never from a bare number, so dates like "23/09/2026" can't be picked
+// up as an amount. Returns paise (0 when absent).
+function moneyAmountPaise(text: string): number {
+  const rupee = text.match(/₹\s*([\d,]+(?:\.\d{1,2})?)/i);
+  const rs =
+    text.match(/([\d,]+(?:\.\d{1,2})?)\s*(?:rs\.?|rupees|paisa)/i);
+  const raw = rupee?.[1] ?? rs?.[1];
+  if (!raw) return 0;
+  return parseAmountToPaise(`₹${raw.replace(/,/g, '')}`) ?? 0;
+}
+
+function isReceivableText(text: string): boolean {
+  if (RECEIVABLE_RE.test(text)) return true;
+  if (MONEY_RETURNED_RE.test(text)) return true;
+  const giveBack = /\bgive\b[^.!?;]{0,40}\bback\b/i.test(text);
+  return giveBack && MONEY_TERMS.test(text);
+}
 
 const LOCATIONS = ['office', 'home', 'restaurant', 'cafe', 'café', 'hotel', 'garden', 'hall', 'masjid'];
 
@@ -162,6 +218,46 @@ export function parseActivity(text: string, person?: string): ParsedActivity {
       matched: true,
       details,
       message: personName ? `Meeting with ${personName}.` : '',
+    };
+  }
+
+  // Money owed BACK to the user. Additive classification — replaces the NOTE
+  // fallback for entries like "shaaf will take ₹5000 from me and give it back".
+  // Status: 'received' when the wording says the money already came back
+  // (returned/repaid/paid back), otherwise 'pending'.
+  if (isReceivableText(text)) {
+    const amountPaise = moneyAmountPaise(text);
+    const status = MONEY_RETURNED_RE.test(text) ? 'received' : 'pending';
+    return {
+      title: '💰 MONEY RECEIVABLE',
+      matched: true,
+      details: [
+        ...(amountPaise > 0
+          ? [{ emoji: '💰', label: 'Amount', value: formatPaise(amountPaise) }]
+          : []),
+        ...details,
+      ],
+      message: cleanText,
+      money: { role: 'receive', amountPaise, status },
+    };
+  }
+
+  // Money the user paid OUT (expense). Distinct from the PAYMENT REMINDER branch
+  // so bought/spent/gave entries never render as a payable/owed item. Status:
+  // DEBIT entries are recorded as already 'paid'.
+  if (EXPENSE_RE.test(lower) || MONEY_GIVEN_RE.test(lower)) {
+    const amountPaise = moneyAmountPaise(text);
+    return {
+      title: '🛍️ EXPENSE',
+      matched: true,
+      details: [
+        ...(amountPaise > 0
+          ? [{ emoji: '💰', label: 'Amount', value: formatPaise(amountPaise) }]
+          : []),
+        ...details,
+      ],
+      message: cleanText,
+      money: { role: 'expense', amountPaise, status: 'paid' },
     };
   }
   if (/\b(pay|payment|owes|paid|receive|send|transfer)\b/i.test(lower)) {

@@ -9,6 +9,8 @@ import type { Timeline } from '../models/types';
 import { useAuthStore } from '../store/authStore';
 import * as entitiesService from '../services/entitiesService';
 import * as timelinesService from '../services/timelinesService';
+import * as expensesService from '../services/expensesService';
+import { formatPaise, isReceivablePending } from '../utils/money';
 import { radii, spacing, useAppStyles, useAppTheme } from '../theme';
 import type { BirbalTheme } from '../theme';
 
@@ -76,6 +78,46 @@ export default function PreviewEntityScreen({ route, navigation }: Props) {
     [timelines, entity.id],
   );
 
+  // Money items for this entity: the linked timeline entries that carry a local
+  // money attribution (role = given-out / owed-back), never sent to the backend.
+  const moneyEntries = useMemo(
+    () =>
+      activities
+        .filter((t) => t.moneyType != null && t.expenseAmountPaisa != null)
+        .sort((a, b) => b.eventDate.localeCompare(a.eventDate)),
+    [activities],
+  );
+
+  const moneyGivenTotal = useMemo(
+    () =>
+      moneyEntries
+        .filter((t) => t.moneyType === 'expense')
+        .reduce((sum, t) => sum + (t.expenseAmountPaisa ?? 0), 0),
+    [moneyEntries],
+  );
+
+  const moneyReceivedTotal = useMemo(
+    () =>
+      moneyEntries
+        .filter((t) => t.moneyType === 'receive')
+        .reduce((sum, t) => sum + (t.expenseAmountPaisa ?? 0), 0),
+    [moneyEntries],
+  );
+
+  // Receive/Ignore: writes ONLY the local status on the same timeline row (no
+  // API call), then reflects it in the local list so the chip updates instantly.
+  const markReceivable = useCallback(
+    (item: Timeline, status: string) => {
+      setTimelines((prev) =>
+        prev.map((x) => (x.id === item.id ? { ...x, receivableStatus: status } : x)),
+      );
+      expensesService
+        .setReceivableStatus(userId, item.id, status)
+        .catch((e) => setActivityError(getErrorMessage(e)));
+    },
+    [userId],
+  );
+
   const initial = entity.name ? entity.name[0].toUpperCase() : '?';
 
   return (
@@ -114,6 +156,43 @@ export default function PreviewEntityScreen({ route, navigation }: Props) {
         ) : null}
       </View>
 
+      {moneyEntries.length > 0 ? (
+        <View style={styles.moneyBlock}>
+          <View style={styles.tlHeader}>
+            <Text style={styles.sectionTitle}>Money</Text>
+            <Text style={styles.entryCount}>
+              {moneyEntries.length} {moneyEntries.length === 1 ? 'item' : 'items'}
+            </Text>
+          </View>
+          <View style={styles.moneySummary}>
+            <View style={styles.moneyStat}>
+              <Text style={styles.moneyStatLabel}>Given</Text>
+              <Text
+                style={[styles.moneyStatValue, { color: theme.danger }]}>
+                {formatPaise(moneyGivenTotal)}
+              </Text>
+            </View>
+            <View style={styles.moneyStat}>
+              <Text style={styles.moneyStatLabel}>Received</Text>
+              <Text
+                style={[styles.moneyStatValue, { color: theme.success }]}>
+                {formatPaise(moneyReceivedTotal)}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.moneyCard}>
+            {moneyEntries.map((t, i) => (
+              <MoneyRow
+                key={t.id}
+                item={t}
+                isLast={i === moneyEntries.length - 1}
+                onMark={markReceivable}
+              />
+            ))}
+          </View>
+        </View>
+      ) : null}
+
       <View style={styles.tlHeader}>
         <Text style={styles.sectionTitle}>Timeline</Text>
         {activities.length > 0 && (
@@ -146,6 +225,72 @@ export default function PreviewEntityScreen({ route, navigation }: Props) {
   );
 }
 
+function MoneyRow({
+  item,
+  isLast,
+  onMark,
+}: {
+  item: Timeline;
+  isLast: boolean;
+  onMark?: (item: Timeline, status: string) => void;
+}) {
+  const theme = useAppTheme();
+  const styles = useAppStyles(makeStyles);
+  const given = item.moneyType === 'expense';
+  const tone = given ? theme.danger : theme.success;
+  const receive = !given;
+  const settled = receive && !isReceivablePending(item.receivableStatus);
+  return (
+    <View style={[styles.moneyRow, !isLast && styles.moneyRowBorder]}>
+      <View style={[styles.moneyIcon, { backgroundColor: tone }]}>
+        <Text style={styles.moneyEmoji}>{given ? '💸' : '💰'}</Text>
+      </View>
+      <View style={styles.moneyBody}>
+        <Text style={styles.moneyTitle} numberOfLines={1}>
+          {item.description?.trim() || item.title}
+        </Text>
+        <Text style={styles.moneyMeta}>{formatDate(item.eventDate)}</Text>
+      </View>
+      <View style={styles.moneyRight}>
+        <Text style={[styles.moneyAmount, { color: tone }]}>
+          {given ? '-' : '+'}
+          {formatPaise(item.expenseAmountPaisa!)}
+        </Text>
+        {given ? (
+          <Text style={styles.moneyStatus}>Given</Text>
+        ) : settled ? (
+          <Text
+            style={[
+              styles.moneyStatus,
+              item.receivableStatus === 'received'
+                ? { color: theme.success, fontWeight: '800' }
+                : { color: theme.textSecondary },
+            ]}>
+            {item.receivableStatus}
+          </Text>
+        ) : onMark ? (
+          <View style={styles.moneyActions}>
+            <Pressable
+              style={[styles.moneyChip, { borderColor: theme.success }]}
+              onPress={() => onMark(item, 'received')}
+              hitSlop={6}>
+              <Text style={[styles.moneyChipText, { color: theme.success }]}>✓ Received</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.moneyChip, { borderColor: theme.border }]}
+              onPress={() => onMark(item, 'ignored')}
+              hitSlop={6}>
+              <Text style={[styles.moneyChipText, { color: theme.textSecondary }]}>✕ Ignore</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Text style={styles.moneyStatus}>Pending</Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
 function TimelineRow({ item, isLast }: { item: Timeline; isLast: boolean }) {
   const theme = useAppTheme();
   const styles = useAppStyles(makeStyles);
@@ -174,7 +319,8 @@ function TimelineRow({ item, isLast }: { item: Timeline; isLast: boolean }) {
         <Text style={styles.entryTitle} numberOfLines={expanded ? undefined : 1}>
           {item.title}
         </Text>
-        {item.description ? (
+        {item.description &&
+        item.description.trim() !== item.title.trim() ? (
           <Text style={styles.entryDesc} numberOfLines={expanded ? undefined : 2}>
             {item.description}
           </Text>
@@ -241,6 +387,55 @@ const makeStyles = (t: BirbalTheme) => ({
     color: t.textSecondary,
     lineHeight: 19,
     marginTop: spacing.md,
+  },
+  moneyBlock: { marginTop: spacing.lg },
+  moneySummary: { flexDirection: 'row', gap: spacing.md, marginBottom: spacing.md },
+  moneyStat: {
+    flex: 1,
+    backgroundColor: t.surfaceVariant,
+    borderRadius: radii.md,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+  },
+  moneyStatLabel: { fontSize: 12, fontWeight: '600', color: t.textSecondary },
+  moneyStatValue: { fontSize: 18, fontWeight: '800', marginTop: 2 },
+  moneyCard: {
+    backgroundColor: t.surface,
+    borderRadius: radii.md,
+    borderWidth: 1,
+    borderColor: t.border,
+    paddingHorizontal: spacing.md,
+  },
+  moneyRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.md },
+  moneyRowBorder: { borderBottomWidth: 1, borderBottomColor: t.borderFaint },
+  moneyIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: radii.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+  },
+  moneyEmoji: { fontSize: 13 },
+  moneyBody: { flex: 1, marginRight: spacing.sm },
+  moneyTitle: { fontSize: 14, fontWeight: '600', color: t.text },
+  moneyMeta: { fontSize: 11, color: t.textSecondary, marginTop: 2 },
+  moneyRight: { alignItems: 'flex-end' },
+  moneyAmount: { fontSize: 14, fontWeight: '800' },
+  moneyActions: { flexDirection: 'row', gap: spacing.xs, marginTop: 4 },
+  moneyChip: {
+    borderWidth: 1,
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+  },
+  moneyChipText: { fontSize: 10, fontWeight: '700' },
+  moneyStatus: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: t.textSecondary,
+    marginTop: 2,
+    textTransform: 'capitalize',
   },
   tlHeader: {
     flexDirection: 'row',

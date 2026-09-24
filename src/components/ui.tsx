@@ -73,7 +73,7 @@ export function Input({
   secureTextEntry?: boolean;
   multiline?: boolean;
   autoCapitalize?: 'none' | 'sentences' | 'words';
-  keyboardType?: 'default' | 'email-address';
+  keyboardType?: 'default' | 'email-address' | 'numeric' | 'decimal-pad';
   right?: React.ReactNode;
 }) {
   const t = useAppTheme();

@@ -78,6 +78,11 @@ export interface TimelineEntityLink {
   entity: Entity;
 }
 
+// Direction of a locally-tracked money entry. 'expense' = debit / money paid
+// out; 'receive' = credit / money owed back to the user. NULL on a timeline row
+// means it carries no money attribution at all.
+export type MoneyType = 'expense' | 'receive';
+
 export interface Timeline {
   id: string;
   title: string;
@@ -88,7 +93,32 @@ export interface Timeline {
   updatedAt?: string | null;
   userId?: string | null;
   entities?: TimelineEntityLink[] | null;
+  // Local-only expense attribution. `expenseAmountPaisa != null` marks this entry
+  // as an expense — the same underlying timeline record, never duplicated. The
+  // backend contract has no concept of expenses, so these fields live only in
+  // SQLite and are preserved by refresh/replaceAll. NULL = not an expense.
+  expenseAmountPaisa?: number | null;
+  expenseCategory?: string | null;
+  // Local-only receivable lifecycle. NULL = still Pending (classified as
+  // receivable at render time by the parser); 'received' / 'ignored' = the user
+  // acted on the entry. Like expense fields, this is never sent to the backend.
+  receivableStatus?: string | null;
+  // Local-only direction marker for money attribution: 'expense' = debit /
+  // money paid out, 'receive' = credit / money owed back to the user. Amount
+  // presence never implies a direction, so this explicit tag is what makes the
+  // classification unambiguous. NULL = not a money entry. Never sent to backend.
+  moneyType?: MoneyType | null;
 }
+
+export interface ExpenseMeta {
+  amountPaise: number;
+  category: string;
+}
+
+export type Expense = Timeline & {
+  expenseAmountPaisa: number;
+  expenseCategory: string;
+};
 
 export interface CreateTimelineRequest {
   title: string;
@@ -114,6 +144,31 @@ export interface CreateDiaryRequest {
   content: string;
   mood: string;
   entryDate: string;
+}
+
+// ─── Notifications ───────────────────────────────────────────────────────────
+// Local-first notification model. `type` drives icon/tone; `entityId`/`timelineId`
+// are optional navigation targets resolved by the Notification Center. The shape
+// is intentionally push-ready (stable id, timestamps, read flag) so a future
+// remote push can map 1:1 onto the same rows.
+export type NotificationType =
+  | 'EVENT'
+  | 'BIRTHDAY'
+  | 'REMINDER'
+  | 'TIMELINE'
+  | 'SYSTEM';
+
+export interface AppNotification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  message?: string | null;
+  icon?: string | null;
+  read: boolean;
+  entityId?: string | null;
+  timelineId?: string | null;
+  createdAt: string;
+  userId?: string | null;
 }
 
 export interface DashboardStats {

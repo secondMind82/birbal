@@ -103,8 +103,9 @@ export default function NotesScreen() {
         text: 'Delete',
         style: 'destructive',
         onPress: () => {
-          notesService.deleteNote(userId, note.id)
-            .then(() => setNotes((prev) => prev.filter((n) => n.id !== note.id)))
+          setNotes((prev) => prev.filter((n) => n.id !== note.id));
+          notesService
+            .deleteNote(userId, note.id)
             .catch((e) => setError(getErrorMessage(e)));
         },
       },

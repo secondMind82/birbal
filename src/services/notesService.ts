@@ -82,8 +82,8 @@ export async function deleteNote(
   id: string,
 ): Promise<void> {
   const uid = requireUserId(userId);
-  await api.deleteNote(id);
   await notesRepository.remove(uid, id);
+  void api.deleteNote(id).catch(() => {});
 }
 
 export async function togglePin(

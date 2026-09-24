@@ -86,6 +86,6 @@ export async function deleteEntity(
   id: string,
 ): Promise<void> {
   const uid = requireUserId(userId);
-  await api.deleteEntity(id);
   await entitiesRepository.remove(uid, id);
+  void api.deleteEntity(id).catch(() => {});
 }

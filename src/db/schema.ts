@@ -12,7 +12,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 //   3. New DDL can slot into its own `up` (e.g. CREATE TABLE notes (..., user_id TEXT
 //      REFERENCES users(id) ...)).
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 6;
 
 export interface Migration {
   version: number;
@@ -105,6 +105,74 @@ const MIGRATIONS: readonly Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_entities_user ON entities(user_id);
         CREATE INDEX IF NOT EXISTS idx_timelines_user_event_date ON timelines(user_id, event_date);
         CREATE INDEX IF NOT EXISTS idx_timeline_entities_entity ON timeline_entities(entity_id);
+      `);
+    },
+  },
+  {
+    // Local notification center: derived rows from genuine app activity (upcoming
+    // events, reminders, birthdays, recent timeline entries, backup completions).
+    // Stable ids + INSERT OR IGNORE keep the set idempotent across refreshes and
+    // app restarts; `read` is persisted so unread state survives relaunch.
+    version: 3,
+    up: async (db) => {
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS notifications (
+          id          TEXT PRIMARY KEY NOT NULL,
+          user_id     TEXT NOT NULL,
+          type        TEXT NOT NULL,
+          title       TEXT NOT NULL,
+          message     TEXT,
+          icon        TEXT,
+          read        INTEGER NOT NULL DEFAULT 0 CHECK (read IN (0, 1)),
+          entity_id   TEXT,
+          timeline_id TEXT,
+          created_at  TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
+        CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, read);
+        CREATE INDEX IF NOT EXISTS idx_notifications_user_created ON notifications(user_id, created_at);
+      `);
+    },
+  },
+{
+    // Expenses: an expense is the SAME underlying record as a timeline entry.
+    // Two additive, NULLable columns on `timelines` make an expense machine-readable
+    // (amount in paise + category) without duplicating storage or a join table.
+    // `expense_amount_paise IS NOT NULL` marks the row as an expense; NULL keeps
+    // existing rows exactly as they are. These columns are LOCAL ONLY — they are
+    // never sent to the backend, and sync/replaceAll explicitly preserves them.
+    version: 4,
+    up: async (db) => {
+      await db.execAsync(`
+        ALTER TABLE timelines ADD COLUMN expense_amount_paise INTEGER;
+        ALTER TABLE timelines ADD COLUMN expense_category TEXT;
+      `);
+    },
+  },
+  {
+    // Receivable lifecycle: NULL = pending (classified at render), 'received' /
+    // 'ignored' = user acted on a money-to-receive entry. Additive and NULLable;
+    // LOCAL ONLY — never sent to the backend, preserved by sync/replaceAll.
+    version: 5,
+    up: async (db) => {
+      await db.execAsync(`
+        ALTER TABLE timelines ADD COLUMN receivable_status TEXT;
+      `);
+    },
+  },
+  {
+    // Money direction: explicitly tags a timeline row that carries local money
+    // attribution as CREDIT / receivable ('receive') or DEBIT / expense
+    // ('expense'). An amount alone must never imply a direction (a refund, a
+    // loan or money given are not the same intent), so this marker is what makes
+    // the classification unambiguous. Additive and NULLable (NULL = existing
+    // non-money rows); LOCAL ONLY — never sent to the backend, preserved by
+    // sync/replaceAll like the expense columns.
+    version: 6,
+    up: async (db) => {
+      await db.execAsync(`
+        ALTER TABLE timelines ADD COLUMN money_type TEXT;
       `);
     },
   },

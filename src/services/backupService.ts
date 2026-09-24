@@ -47,7 +47,15 @@ export async function buildBackup(userId: string): Promise<BackupPayload> {
 export async function uploadBackup(userId?: string): Promise<BackupMetadata> {
   const uid = requireUserId(userId);
   const payload = await buildBackup(uid);
-  return api.createBackup(payload);
+  const meta = await api.createBackup(payload);
+  // Local SYSTEM notification so the bell surfaces a genuine backup completion.
+  void import('../store/notificationStore').then(({ useNotificationStore }) =>
+    useNotificationStore.getState().system(
+      'Backup completed',
+      'Your data backup completed successfully.',
+    ),
+  );
+  return meta;
 }
 
 // Fetches backup metadata (no payload) to detect whether a backup exists and to

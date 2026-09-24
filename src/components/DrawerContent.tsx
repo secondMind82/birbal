@@ -10,6 +10,7 @@ import type { BirbalTheme } from '../theme';
 
 const MENU_ITEMS: { label: string; icon: keyof typeof Ionicons.glyphMap; route: string }[] = [
   { label: 'Dashboard', icon: 'home-outline', route: 'Dashboard' },
+  { label: 'Expenses', icon: 'wallet-outline', route: 'Expenses' },
   { label: 'Timeline', icon: 'pulse-outline', route: 'Timeline' },
   { label: 'Calendar', icon: 'calendar-outline', route: 'Calendar' },
   { label: 'Entities', icon: 'people-outline', route: 'Entities' },

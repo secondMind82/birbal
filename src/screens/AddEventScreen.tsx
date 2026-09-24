@@ -9,6 +9,8 @@ import type { Entity, Timeline } from '../models/types';
 import { useAuthStore } from '../store/authStore';
 import * as timelinesService from '../services/timelinesService';
 import * as entitiesService from '../services/entitiesService';
+import { parseActivity } from '../utils/activityParser';
+import { formatPaise } from '../utils/money';
 import { spacing, useAppStyles, useAppTheme } from '../theme';
 import type { BirbalTheme } from '../theme';
 
@@ -57,21 +59,52 @@ function EventForm({ existing, onDone }: { existing?: Timeline; onDone: () => vo
     );
   };
 
+  // The parser is the single source of money classification. When it detects a
+  // positive amount on the description, the SAME attribution is stamped locally
+  // on this timeline row at save time (never sent to the backend), so the entry
+  // surfaces in Expenses automatically — the user never re-enters it there.
+  const parsed = parseActivity(description);
+  const parsedMoney =
+    parsed.money && parsed.money.amountPaise > 0
+      ? {
+          role: parsed.money.role,
+          amountPaise: parsed.money.amountPaise,
+          category: null as string | null,
+          status: parsed.money.status,
+        }
+      : null;
+
   const handleSave = async () => {
     setLoading(true);
     setError(null);
     try {
+      const now = new Date();
+      const [yy, mm, dd] = eventDate.split('-').map(Number);
+      const local = new Date(
+        yy,
+        mm - 1,
+        dd,
+        now.getHours(),
+        now.getMinutes(),
+        now.getSeconds(),
+        0,
+      );
       const body = {
         title: title.trim(),
         description,
-        eventDate: `${eventDate}T00:00:00Z`,
+        eventDate: local.toISOString(),
         entityIds: linkedIds,
         showOnCalendar,
       };
       if (existing) {
-        await timelinesService.updateTimeline(userId, existing.id, body);
+        await timelinesService.updateTimeline(
+          userId,
+          existing.id,
+          body,
+          parsedMoney ?? undefined,
+        );
       } else {
-        await timelinesService.createTimeline(userId, body);
+        await timelinesService.createTimeline(userId, body, parsedMoney ?? undefined);
       }
       onDone();
     } catch (e) {
@@ -90,6 +123,12 @@ function EventForm({ existing, onDone }: { existing?: Timeline; onDone: () => vo
         multiline
         placeholder="What happened?"
       />
+      {parsedMoney ? (
+        <Text style={styles.moneyHint}>
+          💰 {parsedMoney.role === 'receive' ? 'Receivable' : 'Expense'} detected ·{' '}
+          {formatPaise(parsedMoney.amountPaise)}
+        </Text>
+      ) : null}
       <Input
         label="Event Date (YYYY-MM-DD)"
         value={eventDate}
@@ -132,4 +171,11 @@ function EventForm({ existing, onDone }: { existing?: Timeline; onDone: () => vo
 const makeStyles = (t: BirbalTheme) => ({
   label: { fontSize: 13, fontWeight: '600', color: t.text, marginBottom: spacing.sm },
   chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.lg },
+  moneyHint: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: t.accent,
+    marginTop: -spacing.sm,
+    marginBottom: spacing.lg,
+  },
 }) as const;

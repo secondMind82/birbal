@@ -20,6 +20,7 @@ import { radii, spacing, useAppStyles, useAppTheme } from '../theme';
 import type { BirbalTheme } from '../theme';
 import type { DetailRow } from '../utils/activityParser';
 import { activityEmoji, parseActivity } from '../utils/activityParser';
+import { formatPaise } from '../utils/money';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PreviewTimeline'>;
 type IconName = ComponentProps<typeof Ionicons>['name'];
@@ -178,9 +179,21 @@ export default function PreviewTimelineScreen({ route, navigation }: Props) {
         }),
       }
     : null;
-  const details = [dateRow, ...parsed.details].filter(
-    (row): row is DetailRow => !!row && row.value.trim().length > 0,
-  );
+  const amountRow: DetailRow | null =
+    timeline.expenseAmountPaisa != null
+      ? {
+          emoji: '💰',
+          label: 'Amount',
+          value: `${formatPaise(timeline.expenseAmountPaisa)} · ${timeline.expenseCategory ?? 'Other'}`,
+        }
+      : null;
+  const details = [dateRow, amountRow, ...parsed.details]
+    .filter((row): row is DetailRow => !!row && row.value.trim().length > 0)
+    .filter(
+      (row, index, arr) =>
+        row.label !== 'Amount' ||
+        arr.findIndex((r) => r.label === 'Amount') === index,
+    );
   const essentialDetails = details.filter((row) => ESSENTIAL_DETAIL_LABELS.has(row.label));
   const extraDetails = details.filter((row) => !ESSENTIAL_DETAIL_LABELS.has(row.label));
 

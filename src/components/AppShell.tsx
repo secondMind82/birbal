@@ -7,6 +7,7 @@ import { useNavigation } from '@react-navigation/native';
 import AppHeader from './AppHeader';
 import NotificationCenter from './NotificationCenter';
 import { useNotificationStore } from '../store/notificationStore';
+import type { AppNotification } from '../models/types';
 import { useAppTheme } from '../theme';
 
 type DrawerNav = DrawerNavigationProp<Record<string, object | undefined>>;
@@ -23,11 +24,28 @@ export default function AppShell({
   const theme = useAppTheme();
   const [notifVisible, setNotifVisible] = useState(false);
   const startPolling = useNotificationStore((s) => s.startPolling);
-  const fetchReminders = useNotificationStore((s) => s.fetchReminders);
+  const refresh = useNotificationStore((s) => s.refresh);
 
   useEffect(() => {
     startPolling();
   }, [startPolling]);
+
+  const openFromNotification = (n: AppNotification) => {
+    switch (n.type) {
+      case 'EVENT':
+      case 'REMINDER':
+        navigation.navigate('Calendar');
+        break;
+      case 'BIRTHDAY':
+        navigation.navigate('Entities');
+        break;
+      case 'TIMELINE':
+        navigation.navigate('Timeline');
+        break;
+      case 'SYSTEM':
+        break;
+    }
+  };
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
@@ -41,13 +59,17 @@ export default function AppShell({
           title={title}
           onOpenDrawer={() => navigation.openDrawer()}
           onOpenNotifications={() => {
-            void fetchReminders();
+            void refresh();
             setNotifVisible(true);
           }}
         />
       </LinearGradient>
       <View style={styles.content}>{children}</View>
-      <NotificationCenter visible={notifVisible} onClose={() => setNotifVisible(false)} />
+      <NotificationCenter
+        visible={notifVisible}
+        onClose={() => setNotifVisible(false)}
+        onOpenNotification={openFromNotification}
+      />
     </View>
   );
 }

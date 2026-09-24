@@ -20,6 +20,7 @@ import type { DiaryEntry, Entity, Timeline } from '../models/types';
 import { useAuthStore } from '../store/authStore';
 import * as diaryService from '../services/diaryService';
 import * as entitiesService from '../services/entitiesService';
+import * as notesService from '../services/notesService';
 import * as timelinesService from '../services/timelinesService';
 import {
   classifyEntityType,
@@ -190,13 +191,31 @@ export default function DashboardScreen() {
     return m ? m[1].toLowerCase() : null;
   })();
 
+  const placeQuery = (() => {
+    const m = postText.match(/(?:^|\s)#([^\s]*)$/);
+    return m ? m[1].toLowerCase() : null;
+  })();
+
+  const suggestionMode =
+    placeQuery !== null ? 'place' : mentionQuery !== null ? 'person' : null;
+
   const suggestions =
-    mentionQuery !== null
-      ? entities.filter((e) => e.name.toLowerCase().includes(mentionQuery)).slice(0, 5)
-      : [];
+    suggestionMode === 'place'
+      ? entities
+          .filter((e) => e.type === 'PLACE' && e.name.toLowerCase().includes(placeQuery ?? ''))
+          .slice(0, 5)
+      : suggestionMode === 'person'
+        ? entities
+            .filter((e) => e.name.toLowerCase().includes(mentionQuery ?? ''))
+            .slice(0, 5)
+        : [];
 
   const applySuggestion = (entity: Entity) => {
-    setPostText((prev) => prev.replace(/@([^\s]*)$/, `@${entity.name} `));
+    if (suggestionMode === 'place') {
+      setPostText((prev) => prev.replace(/#([^\s]*)$/, `#${entity.name} `));
+    } else {
+      setPostText((prev) => prev.replace(/@([^\s]*)$/, `@${entity.name} `));
+    }
     inputRef.current?.focus();
   };
 
@@ -207,35 +226,10 @@ export default function DashboardScreen() {
     setError(null);
     try {
       if (!text.includes('@') && !text.includes('#')) {
-        const firstNameWord = sanitizeName(text.split(/\s+/)[0] || '');
-        let personId: string | null = null;
-        let personName = firstNameWord;
-        if (firstNameWord) {
-          const existing = findEntityByName(firstNameWord, entities);
-          if (existing) {
-            personId = existing.id;
-            personName = existing.name;
-          } else {
-            const created = await entitiesService.createEntity(user?.id, {
-              name: firstNameWord,
-              type: 'PERSON',
-              description: 'Automatically created via post.',
-            });
-            personId = created.id;
-            personName = created.name;
-            setEntities((prev) => [...prev, created]);
-          }
-        }
-
-        const description = text;
-        const parsed = parseActivity(description, personName);
-        const title = parsed.matched && parsed.title ? parsed.title : defaultTitle(description);
-        await timelinesService.createTimeline(userId, {
-          title,
-          description,
-          eventDate: extractEventDate(text).toISOString(),
-          showOnCalendar: true,
-          entityIds: personId ? [personId] : [],
+        await notesService.createNote(userId, {
+          title: defaultTitle(text),
+          content: text,
+          pinned: false,
         });
       } else {
         const linkedIds: string[] = [];
@@ -372,6 +366,9 @@ export default function DashboardScreen() {
                       key={e.id}
                       style={styles.suggestionRow}
                       onPress={() => applySuggestion(e)}>
+                      {suggestionMode === 'place' && (
+                        <Text style={styles.suggestionIcon}>📍</Text>
+                      )}
                       <Text style={styles.suggestionName}>{e.name}</Text>
                       <Text style={styles.suggestionType}>{e.type}</Text>
                     </Pressable>
@@ -520,16 +517,24 @@ function TimelineGroupCard({
 
         {group.entries.map((event) => {
           const parsed = parseActivity(event.description ?? '');
+          const titleLine =
+            parsed.title || parsed.message || (event.description ?? '').split('\n')[0]
+            || event.title;
+          const plain = (s: string) => s.replace(/^[#@\s]+/, '').trim().toLowerCase();
+          const entityOnly =
+            !!group.entity.name &&
+            plain(titleLine || '') === group.entity.name.toLowerCase() &&
+            (!parsed.message || plain(parsed.message) === group.entity.name.toLowerCase());
+          if (entityOnly) return null;
           return (
             <View key={event.id} style={styles.groupEntry}>
               <View style={styles.feedTitleRowCompact}>
                 <Text style={styles.feedTitleCompact} numberOfLines={1}>
-                  {parsed.title || parsed.message || (event.description ?? '').split('\n')[0]
-                    || event.title}
+                  {titleLine}
                 </Text>
                 <Text style={styles.feedMetaCompact}>{parsed.details[0]?.emoji ?? ''}</Text>
               </View>
-              {parsed.message ? (
+              {parsed.message && titleLine !== parsed.message ? (
                 <Text style={styles.feedMessageCompact} numberOfLines={1}>{parsed.message}</Text>
               ) : null}
             </View>
@@ -657,6 +662,7 @@ const makeStyles = (t: BirbalTheme) => ({
     borderBottomColor: t.surfaceVariant,
   },
   suggestionName: { fontWeight: '600', color: t.text, fontSize: 14 },
+  suggestionIcon: { marginRight: spacing.sm, fontSize: 14 },
   suggestionType: { marginLeft: 'auto', fontSize: 11, color: t.accent, fontWeight: '700' },
   postButton: {
     backgroundColor: t.accent,

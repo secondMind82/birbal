@@ -19,6 +19,7 @@ import type { Timeline } from '../models/types';
 import { useAuthStore } from '../store/authStore';
 import * as timelinesService from '../services/timelinesService';
 import { activityEmoji, parseActivity } from '../utils/activityParser';
+import { formatPaise } from '../utils/money';
 import { radii, shadows, spacing, useAppStyles, useAppTheme } from '../theme';
 import type { BirbalTheme } from '../theme';
 
@@ -107,9 +108,9 @@ export default function TimelineScreen() {
         text: 'Delete',
         style: 'destructive',
         onPress: () => {
+          setEvents((prev) => prev.filter((e) => e.id !== timeline.id));
           timelinesService
             .deleteTimeline(userId, timeline.id)
-            .then(() => setEvents((prev) => prev.filter((e) => e.id !== timeline.id)))
             .catch((e) => Alert.alert('Error', getErrorMessage(e)));
         },
       },
@@ -279,6 +280,11 @@ function TimelineCard({
         ) : null}
 
         <View style={styles.stampRow}>
+          {event.expenseAmountPaisa != null ? (
+            <Text style={styles.amountText}>
+              {formatPaise(event.expenseAmountPaisa)} · {event.expenseCategory ?? 'Other'}
+            </Text>
+          ) : null}
           <Text style={styles.stampText}>{stamp}</Text>
         </View>
       </Pressable>
@@ -342,6 +348,12 @@ const makeStyles = (t: BirbalTheme) => ({
   },
   tagText: { fontSize: 12, fontWeight: '600', color: t.accent },
   stampRow: { marginTop: spacing.md, alignItems: 'flex-end' },
+  amountText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: t.accent,
+    marginBottom: 3,
+  },
   stampText: { fontSize: 11, color: t.textSecondary, letterSpacing: 0.1 },
   backdrop: { flex: 1, backgroundColor: t.scrim },
   menu: {

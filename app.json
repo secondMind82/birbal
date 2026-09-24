@@ -36,7 +36,8 @@
           "iosUrlScheme": "com.googleusercontent.apps.YOUR_GOOGLE_REVERSED_CLIENT_ID"
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-notifications"
     ],
     "extra": {
       "eas": {

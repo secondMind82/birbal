@@ -7,12 +7,14 @@ import { createDrawerNavigator } from '@react-navigation/drawer';
 import LoginScreen from '../screens/auth/LoginScreen';
 import SignupScreen from '../screens/auth/SignupScreen';
 import DashboardScreen from '../screens/DashboardScreen';
+import ExpensesScreen from '../screens/ExpensesScreen';
 import TimelineScreen from '../screens/TimelineScreen';
 import CalendarScreen from '../screens/CalendarScreen';
 import EntitiesScreen from '../screens/EntitiesScreen';
 import NotesScreen from '../screens/NotesScreen';
 import DiaryScreen from '../screens/DiaryScreen';
 import SettingsScreen from '../screens/SettingsScreen';
+import AddExpenseScreen from '../screens/AddExpenseScreen';
 import AddEventScreen from '../screens/AddEventScreen';
 import CreateNoteScreen from '../screens/CreateNoteScreen';
 import CreateEntityScreen from '../screens/CreateEntityScreen';
@@ -26,6 +28,7 @@ import PreviewDiaryScreen from '../screens/PreviewDiaryScreen';
 import DrawerContent from '../components/DrawerContent';
 import { useAuthStore } from '../store/authStore';
 import { darkColors, useAppTheme } from '../theme';
+import { navigationRef } from './navigationRef';
 import type { RootStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -42,6 +45,7 @@ function MainDrawer() {
         overlayColor: 'rgba(0,0,0,0.5)',
       }}>
       <Drawer.Screen name="Dashboard" component={DashboardScreen} />
+      <Drawer.Screen name="Expenses" component={ExpensesScreen} />
       <Drawer.Screen name="Timeline" component={TimelineScreen} />
       <Drawer.Screen name="Calendar" component={CalendarScreen} />
       <Drawer.Screen name="Entities" component={EntitiesScreen} />
@@ -96,7 +100,7 @@ export default function AppNavigator() {
   }
 
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer ref={navigationRef} theme={navTheme}>
       <Stack.Navigator screenOptions={screenOptions}>
         {!isAuthenticated ? (
           <>
@@ -112,6 +116,7 @@ export default function AppNavigator() {
             />
             <Stack.Screen name="NewNote" component={CreateNoteScreen} options={{ title: 'New Note' }} />
             <Stack.Screen name="NewEntity" component={CreateEntityScreen} options={{ title: 'New Entity' }} />
+            <Stack.Screen name="AddExpense" component={AddExpenseScreen} options={{ title: 'Add Expense' }} />
             <Stack.Screen name="AddEvent" component={AddEventScreen} options={{ title: 'Add Event' }} />
             <Stack.Screen name="EditTimeline" component={AddEventScreen} options={{ title: 'Edit Timeline' }} />
             <Stack.Screen name="NewDiaryEntry" component={EditDiaryScreen} options={{ title: 'New Entry' }} />

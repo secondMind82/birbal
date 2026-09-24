@@ -10,6 +10,8 @@ export type RootStackParamList = {
   Notes: undefined;
   Diary: undefined;
   Settings: undefined;
+  Expenses: undefined;
+  AddExpense: undefined;
   AddEvent: { timeline?: Timeline } | undefined;
   NewNote: undefined;
   NewEntity: undefined;

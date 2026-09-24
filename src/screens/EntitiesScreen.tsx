@@ -111,8 +111,9 @@ export default function EntitiesScreen() {
         text: 'Delete',
         style: 'destructive',
         onPress: () => {
-          entitiesService.deleteEntity(userId, entity.id)
-            .then(() => setEntities((prev) => prev.filter((e) => e.id !== entity.id)))
+          setEntities((prev) => prev.filter((e) => e.id !== entity.id));
+          entitiesService
+            .deleteEntity(userId, entity.id)
             .catch((e) => setError(getErrorMessage(e)));
         },
       },

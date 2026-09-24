@@ -87,8 +87,8 @@ export async function restoreFromBackup(
         }
 
         await txn.runAsync(
-          `INSERT OR IGNORE INTO timelines (id, user_id, title, description, event_date, show_on_calendar, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT OR IGNORE INTO timelines (id, user_id, title, description, event_date, show_on_calendar, created_at, updated_at, expense_amount_paise, expense_category, receivable_status, money_type)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             timeline.id,
             userId,
@@ -98,6 +98,10 @@ export async function restoreFromBackup(
             timeline.showOnCalendar ? 1 : 0,
             timeline.createdAt ?? null,
             timeline.updatedAt ?? null,
+            timeline.expenseAmountPaisa ?? null,
+            timeline.expenseCategory ?? null,
+            timeline.receivableStatus ?? null,
+            timeline.moneyType ?? null,
           ],
         );
 

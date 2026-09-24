@@ -76,8 +76,9 @@ export default function DiaryScreen() {
         text: 'Delete',
         style: 'destructive',
         onPress: () => {
-          diaryService.deleteEntry(userId, entry.id)
-            .then(() => setEntries((prev) => prev.filter((e) => e.id !== entry.id)))
+          setEntries((prev) => prev.filter((e) => e.id !== entry.id));
+          diaryService
+            .deleteEntry(userId, entry.id)
             .catch((e) => setError(getErrorMessage(e)));
         },
       },

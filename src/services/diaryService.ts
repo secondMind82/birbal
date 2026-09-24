@@ -84,6 +84,6 @@ export async function deleteEntry(
   id: string,
 ): Promise<void> {
   const uid = requireUserId(userId);
-  await api.deleteDiaryEntry(id);
   await diaryRepository.remove(uid, id);
+  void api.deleteDiaryEntry(id).catch(() => {});
 }
