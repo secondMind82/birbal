@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   ActivityIndicator,
   Alert,
@@ -53,7 +54,11 @@ function greetingInfo(): { text: string; emoji: string } {
   return { text: 'Good Night', emoji: '🌙' };
 }
 
-function findEntityByName(rawName: string, entities: Entity[]): Entity | undefined {
+function findEntityByName(
+  rawName: string,
+  entities: Entity[],
+  timelines: Timeline[] = [],
+): Entity | undefined {
   const target = sanitizeName(rawName).toLowerCase();
   if (!target) return undefined;
 
@@ -157,9 +162,14 @@ export default function DashboardScreen() {
     }
   }, [userId, applyTimelines]);
 
-  useEffect(() => {
-    void fetchAll();
-  }, [fetchAll]);
+  // Reload on focus, not just on mount. The dashboard stays mounted in the
+  // drawer, so a restore (or any change made on another screen) would otherwise
+  // leave it showing the previous dataset until the app was restarted.
+  useFocusEffect(
+    useCallback(() => {
+      void fetchAll();
+    }, [fetchAll]),
+  );
 
   const refreshAll = useCallback(async () => {
     if (!userId) return;
@@ -248,7 +258,7 @@ export default function DashboardScreen() {
           const word = sanitizeName(raw);
           if (!word) continue;
 
-          const existing = findEntityByName(word, entities);
+          const existing = findEntityByName(word, entities, timelines);
           if (existing) {
             linkedIds.push(existing.id);
             mentions.push(`@${raw}`);
@@ -271,7 +281,7 @@ export default function DashboardScreen() {
           const word = sanitizeName(raw);
           if (!word) continue;
 
-          const existing = findEntityByName(word, entities);
+          const existing = findEntityByName(word, entities, timelines);
           if (existing) {
             linkedIds.push(existing.id);
           } else {

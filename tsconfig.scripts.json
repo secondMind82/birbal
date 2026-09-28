@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "types": ["node"],
+    "strict": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "ignoreDeprecations": "6.0",
+    "rootDir": "..",
+    "outDir": ".verify-build",
+    "noEmit": false
+  },
+  "include": [
+    "scripts/**/*.ts",
+    "src/db/backupTables.ts",
+    "src/db/backupValidation.ts",
+    "src/db/schema.ts",
+    "src/db/repositories/backup.ts",
+    "src/db/models/backupRows.ts",
+    "src/services/backupCanonical.ts",
+    "src/services/backupCounts.ts",
+    "src/services/backupMigration.ts",
+    "src/services/backupCanonical.ts",
+    "src/models/types.ts",
+    "../SecondBrain/secondbrain-api/src/backup/backup-format.ts"
+  ]
+}

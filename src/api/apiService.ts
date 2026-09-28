@@ -107,3 +107,9 @@ export const getLatestBackup = (includePayload = false) =>
   client
     .get<BackupInfo>('backups/latest', { params: { includePayload } })
     .then((r) => r.data);
+
+export const listBackups = (take = 20) =>
+  client.get<BackupMetadata[]>('backups', { params: { take } }).then((r) => r.data);
+
+export const deleteBackup = (id: string) =>
+  client.delete<{ id: string; deleted: true }>(`backups/${id}`).then((r) => r.data);
