@@ -12,7 +12,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 //   3. New DDL can slot into its own `up` (e.g. CREATE TABLE notes (..., user_id TEXT
 //      REFERENCES users(id) ...)).
 
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 export interface Migration {
   version: number;
@@ -173,6 +173,34 @@ const MIGRATIONS: readonly Migration[] = [
     up: async (db) => {
       await db.execAsync(`
         ALTER TABLE timelines ADD COLUMN money_type TEXT;
+      `);
+    },
+  },
+  {
+    // Local safety net for Backup & Restore. Before a restore overwrites the
+    // user's local rows, the current state is captured here as a v2 snapshot so
+    // a bad restore can be rolled back even if it committed successfully.
+    // The snapshot uses the SAME table-driven shape as a cloud backup
+    // (see src/db/backupTables.ts), which makes rollback a normal restore.
+    //
+    // `data` holds the canonical snapshot JSON. `reason` records what produced
+    // it. This table is intentionally NOT part of a backup (it is local
+    // bookkeeping, not user data) and only the newest snapshot per user is
+    // kept, so it can never grow without bound.
+    version: 7,
+    up: async (db) => {
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS backup_snapshots (
+          id            TEXT PRIMARY KEY NOT NULL,
+          user_id       TEXT NOT NULL,
+          reason        TEXT NOT NULL,
+          app_version   TEXT,
+          schema_version INTEGER NOT NULL,
+          data          TEXT NOT NULL,
+          created_at    TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_backup_snapshots_user ON backup_snapshots(user_id, created_at);
       `);
     },
   },

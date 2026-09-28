@@ -190,12 +190,44 @@ export interface SimpleResponse {
 }
 
 // ─── Backup & Restore ────────────────────────────────────────────────────────
-// Logical, versioned snapshot of a user's SQLite productivity data. The payload
-// reuses the existing model shapes (no invented fields); timestamps keep the ISO
-// text format the repositories already write to SQLite.
+// A backup is a versioned, table-driven snapshot of every user-owned SQLite row
+// (see src/db/backupTables.ts). Rows are stored RAW — column name to value —
+// rather than as app model objects, so ids, exact timestamps and columns the
+// current build does not model yet all survive a round trip.
+//
+// Envelope (v2, current):
+//   { backupVersion, appVersion, createdAt, userId, encoding,
+//     recordCounts, checksum, data: { [tableKey]: Row[] } }
+//
+// The envelope NEVER contains credentials: no access/refresh token, password or
+// SecureStore value is ever read into a backup. `userId` is informational
+// only — the server derives ownership from the verified JWT and the client
+// re-asserts it on write.
 
-export interface BackupPayload {
-  backupVersion: number;
+// The wire format reserves an `encoding` field for a future compressed format,
+// but only plain JSON can be verified end to end today: the checksum is taken
+// over the canonical serialization of the decoded `data`, so a compressed
+// payload could never be verified by a client that decompresses it first. The
+// server rejects anything but 'json' and so does restorePayload(), rather than
+// silently mis-hashing a base64 string.
+export type BackupEncoding = 'json';
+
+export interface BackupV2Payload {
+  backupVersion: 2;
+  appVersion: string;
+  encoding: BackupEncoding;
+  createdAt: string;
+  userId: string;
+  recordCounts: Record<string, number>;
+  /** SHA-256 (hex) of the canonical serialization of `data`. */
+  checksum: string;
+  data: Record<string, Record<string, unknown>[]>;
+}
+
+// Historical v1 shape: model objects at the top level, no checksum/encoding.
+// Still accepted on restore and upgraded in memory (see backupService).
+export interface BackupV1Payload {
+  backupVersion: 1;
   createdAt: string;
   updatedAt: string;
   userId: string;
@@ -205,12 +237,19 @@ export interface BackupPayload {
   timelines: Timeline[];
 }
 
+export type BackupPayload = BackupV2Payload | BackupV1Payload;
+
 export interface BackupMetadata {
   id: string;
   backupVersion: number;
   sizeBytes: number;
   createdAt: string;
   updatedAt: string;
+  appVersion: string | null;
+  checksum: string | null;
+  /** Always 'json' for anything this build can restore. */
+  encoding: string;
+  recordCounts: Record<string, number>;
 }
 
 export interface BackupInfo extends BackupMetadata {

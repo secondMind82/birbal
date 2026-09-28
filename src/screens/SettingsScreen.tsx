@@ -5,10 +5,18 @@ import AppShell from '../components/AppShell';
 import { Button, Card, ErrorText, Input } from '../components/ui';
 import { updateProfile } from '../api/apiService';
 import { getErrorMessage } from '../api/client';
-import { getLatestBackupInfo, restoreLatestBackup, uploadBackup } from '../services/backupService';
+import { formatBytes } from '../services/backupIntegrity';
+import {
+  getLatestBackupInfo,
+  hasLocalSnapshot,
+  restoreLatestBackup,
+  rollbackRestore,
+  uploadBackup,
+  type BackupProgress,
+} from '../services/backupService';
 import { useAuthStore } from '../store/authStore';
 import { usePrefsStore } from '../store/prefsStore';
-import type { BackupMetadata } from '../models/types';
+import type { BackupInfo } from '../models/types';
 import { radii, spacing, useAppStyles, useAppTheme } from '../theme';
 import type { BirbalTheme } from '../theme';
 
@@ -32,17 +40,61 @@ export default function SettingsScreen() {
   const [showMorningPicker, setShowMorningPicker] = useState(false);
   const [showEveningPicker, setShowEveningPicker] = useState(false);
 
-  const [lastBackup, setLastBackup] = useState<BackupMetadata | null>(null);
-  const [backupWorking, setBackupWorking] = useState(false);
-  const [restoreWorking, setRestoreWorking] = useState(false);
+  // ─── Backup & Restore ─────────────────────────────────────────────────────
+  // `lastBackup === null` means "this account has no cloud backup", which is a
+  // valid state that must stay visible and the Restore button must remain
+  // tappable (the server is the source of truth for that, not this screen).
+  // `backupIssue` carries a real connectivity/service failure so a network
+  // error is never rendered as "no backup".
+  const [lastBackup, setLastBackup] = useState<BackupInfo | null>(null);
+  const [backupIssue, setBackupIssue] = useState<string | null>(null);
+  const [backupPhase, setBackupPhase] = useState<BackupProgress | null>(null);
+  const [backupError, setBackupError] = useState<string | null>(null);
+  const [restoreSummary, setRestoreSummary] = useState<string | null>(null);
+  const [canRollback, setCanRollback] = useState(false);
+
+  const backupWorking = backupPhase !== null && backupPhase.phase !== 'done';
+  // A restore spends real time validating and preparing the payload before any
+  // row is written, so those phases count as restore work too. Otherwise the
+  // screen would show the backup button spinning "Backing up…" mid-restore.
+  const restoreWorking =
+    backupPhase?.phase === 'validating' ||
+    backupPhase?.phase === 'preparing' ||
+    backupPhase?.phase === 'downloading' ||
+    backupPhase?.phase === 'restoring';
 
   useEffect(() => {
     let active = true;
+    setBackupIssue(null);
+    setBackupError(null);
     getLatestBackupInfo(user?.id)
       .then((info) => {
-        if (active && info) setLastBackup(info);
+        if (!active) return;
+        setLastBackup(info);
+        setBackupIssue(null);
       })
-      .catch(() => {});
+      .catch((e: Error) => {
+        if (active) setBackupIssue(e.message);
+      });
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
+
+  // The safety snapshot is written to the local database, so it survives an app
+  // restart. Query it on mount rather than only setting the flag after a
+  // restore in this screen session — otherwise "Undo last restore" would
+  // silently disappear for a user who closed the app before deciding.
+  useEffect(() => {
+    let active = true;
+    hasLocalSnapshot(user?.id)
+      .then((exists) => {
+        if (active) setCanRollback(exists);
+      })
+      .catch(() => {
+        // A missing local snapshot is not an error; the button simply stays hidden.
+        if (active) setCanRollback(false);
+      });
     return () => {
       active = false;
     };
@@ -50,37 +102,77 @@ export default function SettingsScreen() {
 
   const handleBackup = async () => {
     if (backupWorking) return;
-    setBackupWorking(true);
+    setBackupError(null);
+    setRestoreSummary(null);
+    setBackupPhase({ phase: 'preparing', message: 'Preparing…' });
     try {
-      const meta = await uploadBackup(user?.id);
-      setLastBackup(meta);
-      Alert.alert('Backup completed successfully');
-    } catch {
-      Alert.alert('Backup failed. Please try again.');
+      const { metadata, totalRows } = await uploadBackup(user?.id, setBackupPhase);
+      setLastBackup((prev) => ({ ...(prev ?? ({} as BackupInfo)), ...metadata }));
+      setBackupIssue(null);
+      setRestoreSummary(
+        `Backed up ${totalRows} record${totalRows === 1 ? '' : 's'} to your account.`,
+      );
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Backup failed. Please try again.';
+      setBackupError(message);
+      Alert.alert('Backup failed', message);
     } finally {
-      setBackupWorking(false);
+      setBackupPhase(null);
     }
   };
 
   const confirmRestore = () => {
-    if (restoreWorking || !lastBackup) return;
-    Alert.alert('Restore your backup?', 'Your current local data may be replaced or merged with the backup.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Restore', style: 'destructive', onPress: () => void runRestore() },
-    ]);
+    if (backupWorking) return;
+    Alert.alert(
+      'Restore your backup?',
+      'Your current data on this device will be replaced with the backup. A local safety copy is kept so you can undo this.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Restore', style: 'destructive', onPress: () => void runRestore() },
+      ],
+    );
   };
 
   const runRestore = async () => {
-    if (restoreWorking) return;
-    setRestoreWorking(true);
+    if (backupWorking) return;
+    setBackupError(null);
+    setRestoreSummary(null);
+    setBackupPhase({ phase: 'downloading', message: 'Downloading…' });
     try {
-      await restoreLatestBackup(user?.id);
-      Alert.alert('Restore completed successfully');
-    } catch {
-      Alert.alert('Restore failed. Please try again.');
+      const summary = await restoreLatestBackup(user?.id, setBackupPhase);
+      setRestoreSummary(`Restored ${summary.label}.`);
+      setCanRollback(true);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Restore failed. Please try again.';
+      setBackupError(message);
+      Alert.alert('Restore failed', message);
     } finally {
-      setRestoreWorking(false);
+      setBackupPhase(null);
     }
+  };
+
+  const runRollback = () => {
+    Alert.alert('Undo the last restore?', 'Your data on this device will go back to what it was before the restore.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Undo',
+        style: 'destructive',
+        onPress: async () => {
+          setBackupPhase({ phase: 'restoring', message: 'Rolling back…' });
+          try {
+            const summary = await rollbackRestore(user?.id, setBackupPhase);
+            setRestoreSummary(`Rolled back to your previous data (${summary.label}).`);
+            setCanRollback(false);
+          } catch (e) {
+            const message = e instanceof Error ? e.message : 'Undo failed.';
+            setBackupError(message);
+            Alert.alert('Undo failed', message);
+          } finally {
+            setBackupPhase(null);
+          }
+        },
+      },
+    ]);
   };
 
   const formatDateTime = (iso: string) => {
@@ -254,27 +346,67 @@ export default function SettingsScreen() {
         <Card>
           <Text style={styles.sectionTitle}>Data Backup &amp; Restore</Text>
           <Text style={styles.prefDesc}>
-            Keep your data safe by creating a backup.
-            {'\n'}Restore it anytime on this or a new device.
+            Back up everything on this device to your Birbal account, then restore it on any other device
+            signed in to the same account.
+            {'\n'}Notes, diary entries, people, timelines, events, expenses, reminders and read state are
+            included. Your password and session are never part of a backup.
           </Text>
 
-          <Button
-            title={backupWorking ? 'Backing up...' : 'Backup Now'}
-            onPress={() => void handleBackup()}
-            disabled={backupWorking}
-          />
-          <Button
-            title={restoreWorking ? 'Restoring...' : 'Restore'}
-            onPress={confirmRestore}
-            disabled={restoreWorking || !lastBackup}
-            variant="outline"
-          />
+          <View style={styles.backupButtons}>
+            <View style={styles.backupButton}>
+              <Button
+                title={backupWorking && !restoreWorking ? 'Backing up…' : 'Back up now'}
+                onPress={() => void handleBackup()}
+                disabled={backupWorking}
+                loading={backupWorking && !restoreWorking}
+              />
+            </View>
+            <View style={styles.backupButton}>
+              <Button
+                title={restoreWorking ? 'Restoring…' : 'Restore'}
+                onPress={confirmRestore}
+                disabled={backupWorking}
+                variant="outline"
+              />
+            </View>
+          </View>
 
-          <Text style={styles.backupState}>
-            {lastBackup
-              ? `Last backup: ${formatDateTime(lastBackup.createdAt)}`
-              : 'No backup available'}
-          </Text>
+          {canRollback && (
+            <Button
+              title="Undo last restore"
+              onPress={runRollback}
+              disabled={backupWorking}
+              variant="outline"
+            />
+          )}
+
+          {backupPhase && backupWorking && <Text style={styles.backupProgress}>{backupPhase.message}</Text>}
+
+          {lastBackup && (
+            <>
+              <Text style={styles.backupState}>
+                Last backup: {formatDateTime(lastBackup.createdAt)}
+                {`\n`}
+                {`${lastBackup.backupVersion === 2 ? 'Format v2' : `Format v${lastBackup.backupVersion}`} · ${formatBytes(lastBackup.sizeBytes)}${
+                  lastBackup.appVersion ? ` · app ${lastBackup.appVersion}` : ''
+                }`}
+                {lastBackup.recordCounts && Object.keys(lastBackup.recordCounts).length > 0
+                  ? `\n${Object.entries(lastBackup.recordCounts)
+                      .filter(([key]) => !['total', 'contacts', 'timelineEntityLinks', 'notifications'].includes(key))
+                      .map(([key, count]) => `${count} ${key.replace(/_/g, ' ')}`)
+                      .join(' · ')}`
+                  : ''}
+              </Text>
+              {lastBackup.checksum && (
+                <Text style={styles.backupState}>Integrity verified · checksum {lastBackup.checksum.slice(0, 12)}…</Text>
+              )}
+            </>
+          )}
+
+          {!lastBackup && !backupIssue && <Text style={styles.backupState}>No backup found for this account.</Text>}
+          {backupIssue && <ErrorText error={backupIssue} />}
+          {backupError && <ErrorText error={backupError} />}
+          {restoreSummary && <Text style={styles.backupSuccess}>{restoreSummary}</Text>}
         </Card>
 
         <Button title="Logout" variant="danger" onPress={confirmLogout} />
@@ -358,4 +490,8 @@ const makeStyles = (t: BirbalTheme) => ({
   },
   timeBtnText: { fontSize: 12, fontWeight: '600', color: t.accent },
   backupState: { fontSize: 13, color: t.textSecondary, marginTop: spacing.sm + 2 },
+  backupProgress: { fontSize: 13, color: t.accent, marginTop: spacing.sm + 2 },
+  backupSuccess: { fontSize: 13, color: t.success, marginTop: spacing.sm + 2 },
+  backupButtons: { flexDirection: 'row', gap: spacing.sm },
+  backupButton: { flex: 1 },
 } as const);
