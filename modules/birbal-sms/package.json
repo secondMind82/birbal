@@ -1,0 +1,7 @@
+{
+  "name": "birbal-sms",
+  "version": "0.1.0",
+  "description": "Local Expo module: Android SIM SMS capture for Birbal",
+  "main": "index.ts",
+  "private": true
+}

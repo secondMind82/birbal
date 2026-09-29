@@ -2,6 +2,11 @@
   "name": "birbal-rn",
   "version": "1.0.0",
   "main": "index.ts",
+  "expo": {
+    "autolinking": {
+      "nativeModulesDir": "./modules"
+    }
+  },
   "dependencies": {
     "@expo/ngrok": "^4.1.3",
     "@expo/vector-icons": "^15.0.3",
@@ -43,7 +48,8 @@
     "typecheck": "tsc --noEmit",
     "verify:backup": "rm -rf .verify-build && tsc -p tsconfig.scripts.json && BIRBAL_ROOT=\"$PWD\" node --test .verify-build/birbal/scripts/verify-backup.js",
     "verify:backup:build": "tsc -p tsconfig.scripts.json",
-    "verify:backup:live": "tsc -p tsconfig.scripts.json && BIRBAL_ROOT=\"$PWD\" node .verify-build/birbal/scripts/verify-backup-live.js"
+    "verify:backup:live": "tsc -p tsconfig.scripts.json && BIRBAL_ROOT=\"$PWD\" node .verify-build/birbal/scripts/verify-backup-live.js",
+    "verify:sms": "tsc -p tsconfig.scripts.json && BIRBAL_ROOT=\"$PWD\" node --test .verify-build/birbal/scripts/verify-sms.js"
   },
   "private": true
 }

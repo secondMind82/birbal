@@ -25,6 +25,7 @@ import PreviewNoteScreen from '../screens/PreviewNoteScreen';
 import PreviewEntityScreen from '../screens/PreviewEntityScreen';
 import PreviewTimelineScreen from '../screens/PreviewTimelineScreen';
 import PreviewDiaryScreen from '../screens/PreviewDiaryScreen';
+import SmsReviewScreen from '../screens/SmsReviewScreen';
 import DrawerContent from '../components/DrawerContent';
 import { useAuthStore } from '../store/authStore';
 import { darkColors, useAppTheme } from '../theme';
@@ -120,6 +121,7 @@ export default function AppNavigator() {
             <Stack.Screen name="AddEvent" component={AddEventScreen} options={{ title: 'Add Event' }} />
             <Stack.Screen name="EditTimeline" component={AddEventScreen} options={{ title: 'Edit Timeline' }} />
             <Stack.Screen name="NewDiaryEntry" component={EditDiaryScreen} options={{ title: 'New Entry' }} />
+            <Stack.Screen name="SmsReview" component={SmsReviewScreen} options={{ title: 'Review Message' }} />
 
             <Stack.Screen name="EditNote" component={EditNoteScreen} options={{ title: 'Edit Note' }} />
             <Stack.Screen name="EditEntity" component={EditEntityScreen} options={{ title: 'Edit Entity' }} />

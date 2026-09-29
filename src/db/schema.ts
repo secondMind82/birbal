@@ -12,7 +12,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 //   3. New DDL can slot into its own `up` (e.g. CREATE TABLE notes (..., user_id TEXT
 //      REFERENCES users(id) ...)).
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 export interface Migration {
   version: number;
@@ -201,6 +201,56 @@ const MIGRATIONS: readonly Migration[] = [
         );
 
         CREATE INDEX IF NOT EXISTS idx_backup_snapshots_user ON backup_snapshots(user_id, created_at);
+      `);
+    },
+  },
+  {
+    // SIM SMS capture: the inbox the native BroadcastReceiver feeds, plus the
+    // provenance columns that let a user see (and later undo) which records came
+    // from a message.
+    //
+    // `sms_messages` is the review queue. `status` is the review lifecycle:
+    // PENDING (waiting for the user), IGNORED (dismissed on purpose) or
+    // PROCESSED (saved into the app). The two linkage columns are nullable and
+    // NULL while the message is still PENDING; they are what makes saving
+    // idempotent — a second save finds the timeline it already created instead of
+    // duplicating it. `is_otp` is a local privacy hint so OTP-style messages can
+    // be masked in the notification and aged out of the queue.
+    //
+    // This table is deliberately EXCLUDED from cloud backups (see
+    // src/db/backupTables.ts): message bodies are private, per-device data that
+    // the user never asked to leave the phone.
+    //
+    // `source` / `source_notification_id` on `timelines` and
+    // `source_notification_id` on `entities` are LOCAL ONLY, exactly like the
+    // money columns: the backend has no such field, so sync/replaceAll snapshots
+    // them back onto the same row on every refresh. The SMS origin marker is
+    // also what protects on-device records from being dropped by a refresh that
+    // happened before they could sync (offline saves).
+    version: 8,
+    up: async (db) => {
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS sms_messages (
+          id                   TEXT PRIMARY KEY NOT NULL,
+          user_id              TEXT NOT NULL,
+          sender               TEXT NOT NULL,
+          body                 TEXT NOT NULL,
+          received_at          TEXT NOT NULL,
+          status               TEXT NOT NULL DEFAULT 'PENDING'
+                                 CHECK (status IN ('PENDING', 'IGNORED', 'PROCESSED')),
+          is_otp               INTEGER NOT NULL DEFAULT 0 CHECK (is_otp IN (0, 1)),
+          notification_id      TEXT,
+          timeline_id          TEXT,
+          processed_at         TEXT,
+          created_at           TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_sms_messages_user_status
+          ON sms_messages(user_id, status, received_at);
+
+        ALTER TABLE timelines ADD COLUMN source TEXT;
+        ALTER TABLE timelines ADD COLUMN source_notification_id TEXT;
+        ALTER TABLE entities ADD COLUMN source_notification_id TEXT;
       `);
     },
   },

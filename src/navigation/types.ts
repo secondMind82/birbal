@@ -24,4 +24,5 @@ export type RootStackParamList = {
   PreviewEntity: { entity: Entity };
   PreviewTimeline: { timeline: Timeline };
   PreviewDiary: { entry: DiaryEntry };
+  SmsReview: { smsId: string };
 };

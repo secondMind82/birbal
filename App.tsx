@@ -6,6 +6,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import AppNavigator from './src/navigation/AppNavigator';
 import { initializeDatabase } from './src/db/database';
 import { useAuthStore } from './src/store/authStore';
+import { useSmsIngest } from './src/hooks/useSmsIngest';
 import {
   clearAllEventReminders,
   initNotificationListeners,
@@ -72,6 +73,9 @@ export default function App() {
       void resyncEventReminders(userId).catch(() => {});
     }
   }, [userId]);
+
+  // Drains SMS captured by the native receiver (sign-in, foreground, timer).
+  useSmsIngest(userId);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import AppShell from '../components/AppShell';
+import SmsPermissionCard from '../components/SmsPermissionCard';
 import { Button, Card, ErrorText, Input } from '../components/ui';
 import { updateProfile } from '../api/apiService';
 import { getErrorMessage } from '../api/client';
@@ -342,6 +343,8 @@ export default function SettingsScreen() {
             />
           </View>
         </Card>
+
+        <SmsPermissionCard />
 
         <Card>
           <Text style={styles.sectionTitle}>Data Backup &amp; Restore</Text>

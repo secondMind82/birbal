@@ -3,14 +3,19 @@ import { StatusBar, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { DrawerNavigationProp } from '@react-navigation/drawer';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import AppHeader from './AppHeader';
 import NotificationCenter from './NotificationCenter';
 import { useNotificationStore } from '../store/notificationStore';
+import { useAuthStore } from '../store/authStore';
+import * as smsService from '../services/smsService';
 import type { AppNotification } from '../models/types';
+import type { RootStackParamList } from '../navigation/types';
 import { useAppTheme } from '../theme';
 
 type DrawerNav = DrawerNavigationProp<Record<string, object | undefined>>;
+type RootNav = NativeStackNavigationProp<RootStackParamList>;
 
 export default function AppShell({
   title,
@@ -20,6 +25,9 @@ export default function AppShell({
   children: React.ReactNode;
 }) {
   const navigation = useNavigation<DrawerNav>();
+  // The shell lives inside the drawer but targets stack routes (SmsReview), so the
+  // stack navigator is reached through the same navigation object.
+  const rootNav = useNavigation<RootNav>();
   const insets = useSafeAreaInsets();
   const theme = useAppTheme();
   const [notifVisible, setNotifVisible] = useState(false);
@@ -42,9 +50,27 @@ export default function AppShell({
       case 'TIMELINE':
         navigation.navigate('Timeline');
         break;
+      case 'SMS':
+        // Tapping the card opens the review screen; the record it creates then
+        // shows up in the normal Timeline notifications.
+        rootNav.navigate('SmsReview', { smsId: n.id.replace(/^sms-/, '') });
+        break;
       case 'SYSTEM':
         break;
     }
+  };
+
+  const editSms = (smsId: string) => {
+    rootNav.navigate('SmsReview', { smsId });
+  };
+
+  const ignoreSms = (smsId: string) => {
+    const userId = useAuthStore.getState().user?.id;
+    if (!userId) return;
+    void (async () => {
+      await smsService.ignoreSms(userId, smsId);
+      await refresh();
+    })();
   };
 
   return (
@@ -69,6 +95,8 @@ export default function AppShell({
         visible={notifVisible}
         onClose={() => setNotifVisible(false)}
         onOpenNotification={openFromNotification}
+        onEditSms={editSms}
+        onIgnoreSms={ignoreSms}
       />
     </View>
   );

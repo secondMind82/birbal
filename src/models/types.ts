@@ -64,6 +64,11 @@ export interface Entity {
   userId?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
+  // Local-only provenance: set when the entity was auto-created while saving a
+  // captured SIM SMS. The originating message is the only thing that created it,
+  // so on-device (possibly not-yet-synced) entities are protected from being
+  // dropped by a server refresh. Never sent to the backend.
+  sourceNotificationId?: string | null;
 }
 
 export interface CreateEntityRequest {
@@ -108,7 +113,17 @@ export interface Timeline {
   // presence never implies a direction, so this explicit tag is what makes the
   // classification unambiguous. NULL = not a money entry. Never sent to backend.
   moneyType?: MoneyType | null;
+  // Local-only provenance. Set when the record was created by saving a captured
+  // SIM SMS, so the UI can attribute the record to its message and the SMS flow
+  // can find the record it already created instead of duplicating it. The
+  // backend has no such concept, so these are never sent to it and are preserved
+  // by refresh/replaceAll exactly like the money columns above.
+  source?: TimelineSource | null;
+  sourceNotificationId?: string | null;
 }
+
+/** Local-only record origin. Currently only SMS capture creates records. */
+export type TimelineSource = 'SMS';
 
 export interface ExpenseMeta {
   amountPaise: number;
@@ -156,7 +171,11 @@ export type NotificationType =
   | 'BIRTHDAY'
   | 'REMINDER'
   | 'TIMELINE'
-  | 'SYSTEM';
+  | 'SYSTEM'
+  | 'SMS';
+
+/** Review state of a captured SMS in the local inbox. */
+export type SmsStatus = 'PENDING' | 'IGNORED' | 'PROCESSED';
 
 export interface AppNotification {
   id: string;
@@ -169,6 +188,34 @@ export interface AppNotification {
   timelineId?: string | null;
   createdAt: string;
   userId?: string | null;
+}
+
+/**
+ * A SIM SMS held in the local review queue. Raw bodies never leave the device:
+ * this table is excluded from cloud backup and no body is ever logged.
+ */
+export interface SmsMessage {
+  /** Stable message identity; the primary key that makes capture idempotent. */
+  id: string;
+  sender: string;
+  body: string;
+  receivedAt: string;
+  status: SmsStatus;
+  /** Local privacy hint: OTP-style text is masked in the UI and aged out. */
+  isOtp: boolean;
+  notificationId?: string | null;
+  /** Set once saved, so saving the same message again cannot duplicate it. */
+  timelineId?: string | null;
+  processedAt?: string | null;
+  createdAt: string;
+  userId?: string | null;
+}
+
+/** What the classifier decided about a message, before the user edits it. */
+export interface SmsClassification {
+  kind: 'financial' | 'otp' | 'other';
+  /** Why it was classified this way, shown as a hint in the edit screen. */
+  reason: string;
 }
 
 export interface DashboardStats {

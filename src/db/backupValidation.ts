@@ -57,7 +57,12 @@ export function validateBackupRows(data: unknown, options: { allowEmpty?: boolea
           return fail(`Table "${key}" contains unsupported column "${col}"`);
         }
       }
+      // Columns introduced after a backup was taken are genuinely absent from
+      // older payloads, so they are exempt from the presence check and restore
+      // as NULL (the column's own default).
+      const optional = new Set(spec.optionalColumns ?? []);
       for (const col of spec.columns) {
+        if (optional.has(col)) continue;
         if (!(col in row)) return fail(`Table "${key}" row is missing column "${col}"`);
       }
       for (const col of required) {

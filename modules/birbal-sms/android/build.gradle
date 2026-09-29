@@ -1,0 +1,29 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.secondbrain'
+version = '0.1.0'
+
+android {
+  namespace "com.secondbrain.birbalsms"
+
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+    // Telephony.Sms.Intents is available on every supported API level; the app's
+    // own minSdk is enforced by the consuming application, so this library
+    // deliberately stays at 24 to remain installable wherever Birbal builds.
+    minSdkVersion 24
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+}
+
+dependencies {
+  implementation "org.jetbrains.kotlin:kotlin-stdlib:2.1.20"
+}

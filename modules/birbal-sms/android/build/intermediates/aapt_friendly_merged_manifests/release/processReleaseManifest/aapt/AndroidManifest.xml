@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Merged into the app manifest by the Android Gradle Plugin, so no config plugin
+  and no hand-edited generated files are needed. Declaring RECEIVE_SMS here (a
+  library manifest) is exactly how a local Expo module is supposed to add a
+  permission.
+
+  `android:required="false"` on the telephony feature keeps Birbal installable on
+  tablets without a SIM.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.secondbrain.birbalsms" >
+
+    <uses-sdk android:minSdkVersion="24" />
+
+    <uses-feature
+        android:name="android.hardware.telephony"
+        android:required="false" />
+
+    <!--
+    The only permission this feature needs: enough to observe incoming SMS.
+    READ_SMS (history) and READ_CONTACTS are deliberately NOT requested — the
+    app never reads past messages or the address book.
+    -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+
+    <application>
+
+        <!--
+      android:permission="android.permission.BROADCAST_SMS" restricts the
+      broadcast to the telephony system, so no other app can forge an SMS event
+      into Birbal. The receiver is exported because the system delivers to it,
+      and it declares no android:enabled toggle: capture is gated on the runtime
+      RECEIVE_SMS permission instead, which Android enforces before the
+      broadcast is delivered at all.
+        -->
+        <receiver
+            android:name="com.secondbrain.birbalsms.SmsBroadcastReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS" >
+            <intent-filter android:priority="999" >
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
+    </application>
+
+</manifest>

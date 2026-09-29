@@ -30,6 +30,7 @@ import {
   parseActivity,
   sanitizeName,
 } from '../utils/activityParser';
+import { findEntityByName } from '../utils/entityLookup';
 import { radii, spacing, useAppStyles, useAppTheme } from '../theme';
 import type { BirbalTheme } from '../theme';
 
@@ -54,41 +55,8 @@ function greetingInfo(): { text: string; emoji: string } {
   return { text: 'Good Night', emoji: '🌙' };
 }
 
-function findEntityByName(
-  rawName: string,
-  entities: Entity[],
-  timelines: Timeline[] = [],
-): Entity | undefined {
-  const target = sanitizeName(rawName).toLowerCase();
-  if (!target) return undefined;
-
-  const candidates = entities.filter((e) => sanitizeName(e.name).toLowerCase().includes(target));
-  if (candidates.length === 0) return undefined;
-
-  // Prefer exact sanitized match
-  const exact = candidates.find((e) => sanitizeName(e.name).toLowerCase() === target);
-  if (exact) return exact;
-
-  // If multiple candidates, pick the one with most linked timelines (most active)
-  if (timelines && timelines.length > 0) {
-    let best: Entity | undefined = undefined;
-    let bestCount = -1;
-    for (const c of candidates) {
-      const count = timelines.filter((t) => (t.entities ?? []).some((l) => l.entityId === c.id)).length;
-      if (count > bestCount) {
-        best = c;
-        bestCount = count;
-      }
-    }
-    if (best) return best;
-  }
-
-  // Fallback: starts-with then contains
-  const starts = candidates.find((e) => sanitizeName(e.name).toLowerCase().startsWith(target));
-  if (starts) return starts;
-  return candidates[0];
-}
-
+// Entity name resolution lives in src/utils/entityLookup so the SMS save flow
+// links to exactly the same people this screen does.
 export default function DashboardScreen() {
   const t = useAppTheme();
   const styles = useAppStyles(makeStyles);

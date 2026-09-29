@@ -49,6 +49,30 @@ import { fakeDb, resetState, seed, statementsIssued, visibleTo } from './fake-sq
 const USER = 'user-1';
 const OTHER_USER = 'user-2';
 
+/**
+ * Fills in the columns a fixture did not provide, so an expectation can be
+ * compared against a restored row. Optional columns (those added to a table
+ * after some backups were already taken) restore as NULL.
+ */
+function withOptionalColumns(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  const optional = new Set(
+    BACKUP_TABLES.flatMap((spec) => spec.optionalColumns ?? []),
+  );
+  return rows.map((row) => {
+    const filled: Record<string, unknown> = { ...row };
+    for (const spec of BACKUP_TABLES) {
+      for (const col of spec.optionalColumns ?? []) {
+        if (col in filled) continue;
+        // A column only belongs to the table the row came from; infer it by
+        // checking which spec's non-optional columns the row actually has.
+        const required = spec.columns.filter((c) => !optional.has(c));
+        if (required.every((c) => c in filled)) filled[col] = null;
+      }
+    }
+    return filled;
+  });
+}
+
 function sampleRows(): BackupRows {
   return {
     entities: [
@@ -366,7 +390,8 @@ test('restore writes every table and preserves ids, timestamps and money fields'
   });
 
   const after = visibleTo(USER);
-  assert.deepEqual(after.timelines, rows.timelines);
+  assert.deepEqual(after.timelines, withOptionalColumns(rows.timelines));
+  assert.deepEqual(after.entities, withOptionalColumns(rows.entities));
   assert.deepEqual(after.notes, rows.notes);
   assert.deepEqual(after.diary_entries, rows.diary_entries);
   assert.deepEqual(after.notifications, rows.notifications);
@@ -374,6 +399,53 @@ test('restore writes every table and preserves ids, timestamps and money fields'
   assert.equal(after.timelines[0].expense_amount_paise, 5000);
   assert.equal(after.timelines[0].money_type, 'expense');
   assert.equal(after.timelines[0].show_on_calendar, 1);
+});
+
+test('a backup taken before the SMS columns existed still restores', async () => {
+  resetState();
+  const db = fakeDb();
+  // A payload from before schema 8: no `source` / `source_notification_id`
+  // keys at all. It must validate and restore, with the new columns left NULL,
+  // rather than being rejected as corrupt — otherwise adding a column would
+  // invalidate every backup a user already has.
+  const legacy = sampleRows() as BackupRows;
+  for (const row of legacy.timelines) {
+    delete (row as Record<string, unknown>).source;
+    delete (row as Record<string, unknown>).source_notification_id;
+  }
+  for (const row of legacy.entities) {
+    delete (row as Record<string, unknown>).source_notification_id;
+  }
+
+  assert.ok(validateBackupRows(legacy).ok, 'a legacy payload must still validate');
+
+  await runRestoreTransaction(db, USER, legacy);
+  const after = visibleTo(USER);
+  assert.equal(after.timelines.length, 2);
+  assert.equal(after.timelines[0].source, null);
+  assert.equal(after.timelines[0].source_notification_id, null);
+  assert.equal(after.entities[0].source_notification_id, null);
+  // The rest of the row is untouched by the missing keys.
+  assert.equal(after.timelines[0].expense_amount_paise, 5000);
+});
+
+test('a new backup round-trips the SMS provenance columns', async () => {
+  resetState();
+  const db = fakeDb();
+  const rows = sampleRows();
+  const timeline = rows.timelines[0] as Record<string, unknown>;
+  timeline.source = 'SMS';
+  timeline.source_notification_id = 'sms-abc';
+  const entity = rows.entities[0] as Record<string, unknown>;
+  entity.source_notification_id = 'sms-abc';
+
+  assert.ok(validateBackupRows(rows).ok);
+  await runRestoreTransaction(db, USER, rows);
+
+  const after = visibleTo(USER);
+  assert.equal(after.timelines[0].source, 'SMS');
+  assert.equal(after.timelines[0].source_notification_id, 'sms-abc');
+  assert.equal(after.entities[0].source_notification_id, 'sms-abc');
 });
 
 test('restore is idempotent: repeating it does not duplicate rows', async () => {

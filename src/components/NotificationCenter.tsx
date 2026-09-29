@@ -20,6 +20,7 @@ const TYPE_ICONS: Record<NotificationType, string> = {
   REMINDER: '⏰',
   TIMELINE: '✨',
   SYSTEM: '💾',
+  SMS: '💬',
 };
 
 function notificationIcon(n: AppNotification): string {
@@ -30,10 +31,16 @@ export default function NotificationCenter({
   visible,
   onClose,
   onOpenNotification,
+  onEditSms,
+  onIgnoreSms,
 }: {
   visible: boolean;
   onClose: () => void;
   onOpenNotification: (n: AppNotification) => void;
+  /** SMS only: open the review screen for this message. */
+  onEditSms?: (smsId: string) => void;
+  /** SMS only: dismiss this message without saving anything. */
+  onIgnoreSms?: (smsId: string) => void;
 }) {
   const notifications = useNotificationStore((s) => s.notifications);
   const unread = useNotificationStore((s) => s.notificationCount);
@@ -111,6 +118,35 @@ export default function NotificationCenter({
                     <Text style={styles.notifTime}>
                       {formatRelativeTime(item.createdAt)}
                     </Text>
+                    {/* SMS cards carry their own two decisions, so the sheet
+                        offers them inline instead of making the user open the
+                        message just to dismiss it. */}
+                    {item.type === 'SMS' && (onEditSms || onIgnoreSms) ? (
+                      <View style={styles.actionRow}>
+                        <Pressable
+                          hitSlop={6}
+                          onPress={() => {
+                            onEditSms?.(item.id.replace(/^sms-/, ''));
+                            onClose();
+                          }}
+                          style={({ pressed }) => [
+                            styles.actionButton,
+                            styles.actionPrimary,
+                            pressed && { opacity: 0.7 },
+                          ]}>
+                          <Text style={styles.actionPrimaryText}>Review</Text>
+                        </Pressable>
+                        <Pressable
+                          hitSlop={6}
+                          onPress={() => onIgnoreSms?.(item.id.replace(/^sms-/, ''))}
+                          style={({ pressed }) => [
+                            styles.actionButton,
+                            pressed && { opacity: 0.7 },
+                          ]}>
+                          <Text style={styles.actionText}>Ignore</Text>
+                        </Pressable>
+                      </View>
+                    ) : null}
                   </View>
                   {!item.read && <View style={styles.unreadDot} />}
                 </Pressable>
@@ -209,6 +245,23 @@ const notificationStyles = (c: BirbalTheme) =>
     notifTitleUnread: { fontWeight: '800' },
     notifMessage: { fontSize: 12, color: c.textSecondary, marginTop: 2, lineHeight: 17 },
     notifTime: { fontSize: 11, color: c.textSecondary, marginTop: 4, letterSpacing: 0.2 },
+    actionRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      marginTop: spacing.sm,
+    },
+    actionButton: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: 6,
+      borderRadius: 999,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: c.border,
+      backgroundColor: c.surface,
+    },
+    actionPrimary: { backgroundColor: c.primary, borderColor: c.primary },
+    actionPrimaryText: { fontSize: 12, fontWeight: '800', color: c.onAccent },
+    actionText: { fontSize: 12, fontWeight: '700', color: c.textSecondary },
     unreadDot: {
       width: 8,
       height: 8,

@@ -9,6 +9,8 @@ export interface EntityInput {
   avatar?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
+  /** Local-only provenance; see the SMS note on Entity. */
+  sourceNotificationId?: string | null;
 }
 
 export type EntityUpdate = Partial<Pick<Entity, 'name' | 'type' | 'description' | 'avatar'>> & {
@@ -24,6 +26,24 @@ interface EntityRow {
   avatar: string | null;
   created_at: string | null;
   updated_at: string | null;
+  source_notification_id: string | null;
+}
+
+const INSERT_SQL = `INSERT INTO entities (id, user_id, name, type, description, avatar, created_at, updated_at, source_notification_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+function insertValues(entity: EntityInput | Entity, userId: string): (string | null)[] {
+  return [
+    entity.id,
+    userId,
+    entity.name,
+    entity.type,
+    entity.description ?? null,
+    entity.avatar ?? null,
+    entity.createdAt ?? null,
+    entity.updatedAt ?? null,
+    entity.sourceNotificationId ?? null,
+  ];
 }
 
 function toEntity(row: EntityRow): Entity {
@@ -36,6 +56,7 @@ function toEntity(row: EntityRow): Entity {
     avatar: row.avatar,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    sourceNotificationId: row.source_notification_id,
   };
 }
 
@@ -58,21 +79,21 @@ export async function getById(userId: string, id: string): Promise<Entity | null
   return row ? toEntity(row) : null;
 }
 
+/** Case-insensitive lookup by name to avoid creating duplicate entities. */
+export async function findByName(userId: string, name: string): Promise<Entity | null> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<EntityRow>(
+    'SELECT * FROM entities WHERE user_id = ? AND LOWER(name) = LOWER(?) LIMIT 1',
+    userId,
+    name,
+  );
+  return row ? toEntity(row) : null;
+}
+
 export async function create(userId: string, entity: EntityInput): Promise<Entity> {
   return serializeWrite(async () => {
     const db = await getDb();
-    await db.runAsync(
-      `INSERT INTO entities (id, user_id, name, type, description, avatar, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      entity.id,
-      userId,
-      entity.name,
-      entity.type,
-      entity.description ?? null,
-      entity.avatar ?? null,
-      entity.createdAt ?? null,
-      entity.updatedAt ?? null,
-    );
+    await db.runAsync(INSERT_SQL, insertValues(entity, userId));
     return (await getById(userId, entity.id))!;
   });
 }
@@ -134,20 +155,35 @@ export async function replaceAll(userId: string, entities: Entity[]): Promise<vo
   return serializeWrite(async () => {
     const db = await getDb();
     await db.withExclusiveTransactionAsync(async (txn) => {
+      // Rows that only exist on this device. A captured SMS can create an entity
+      // while the phone is offline, so the next server refresh would otherwise
+      // delete work the user just did. Snapshot them (with their provenance) and
+      // re-insert the ones the server does not know about.
+      const localOnly = await txn.getAllAsync<EntityRow>(
+        'SELECT * FROM entities WHERE user_id = ? AND source_notification_id IS NOT NULL',
+        userId,
+      );
+      const incomingIds = new Set(entities.map((e) => e.id));
+      const preserved = localOnly.filter((row) => !incomingIds.has(row.id));
+
+      // Local-only provenance is never part of the server payload, so snapshot
+      // and re-apply it onto rows the server does know about.
+      const localSourceById = new Map(
+        localOnly.filter((row) => incomingIds.has(row.id)).map((row) => [row.id, row.source_notification_id]),
+      );
+
       await txn.runAsync('DELETE FROM entities WHERE user_id = ?', userId);
       for (const entity of entities) {
-        await txn.runAsync(
-          `INSERT INTO entities (id, user_id, name, type, description, avatar, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          entity.id,
+        await txn.runAsync(INSERT_SQL, insertValues(
+          {
+            ...entity,
+            sourceNotificationId: localSourceById.get(entity.id) ?? entity.sourceNotificationId ?? null,
+          },
           userId,
-          entity.name,
-          entity.type,
-          entity.description ?? null,
-          entity.avatar ?? null,
-          entity.createdAt ?? null,
-          entity.updatedAt ?? null,
-        );
+        ));
+      }
+      for (const row of preserved) {
+        await txn.runAsync(INSERT_SQL, insertValues(toEntity(row), userId));
       }
     });
   });
@@ -178,18 +214,7 @@ export async function upsertEntities(
           continue;
         }
 
-        await txn.runAsync(
-          `INSERT INTO entities (id, user_id, name, type, description, avatar, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          entity.id,
-          userId,
-          entity.name,
-          entity.type,
-          entity.description ?? null,
-          entity.avatar ?? null,
-          entity.createdAt ?? null,
-          entity.updatedAt ?? null,
-        );
+        await txn.runAsync(INSERT_SQL, insertValues(entity, userId));
       }
     });
   });

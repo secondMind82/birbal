@@ -1,7 +1,13 @@
 import { getDb, serializeWrite } from '../database';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { isMoneyType } from '../../utils/money';
-import type { Timeline, TimelineEntityLink, Entity, MoneyType } from '../../models/types';
+import type {
+  Timeline,
+  TimelineEntityLink,
+  Entity,
+  MoneyType,
+  TimelineSource,
+} from '../../models/types';
 
 export interface TimelineInput {
   id: string;
@@ -15,6 +21,9 @@ export interface TimelineInput {
   expenseCategory?: string | null;
   receivableStatus?: string | null;
   moneyType?: MoneyType | null;
+  /** Local-only provenance; see the SMS note on Timeline. */
+  source?: TimelineSource | null;
+  sourceNotificationId?: string | null;
 }
 
 export type TimelineUpdate = Partial<
@@ -28,6 +37,8 @@ export type TimelineUpdate = Partial<
     | 'expenseCategory'
     | 'receivableStatus'
     | 'moneyType'
+    | 'source'
+    | 'sourceNotificationId'
   >
 > & {
   updatedAt?: string | null;
@@ -46,6 +57,8 @@ interface TimelineRow {
   expense_category: string | null;
   receivable_status: string | null;
   money_type: string | null;
+  source: string | null;
+  source_notification_id: string | null;
 }
 
 interface EntityJoinRow {
@@ -57,6 +70,7 @@ interface EntityJoinRow {
   avatar: string | null;
   created_at: string | null;
   updated_at: string | null;
+  source_notification_id: string | null;
 }
 
 function toTimelineRow(
@@ -75,6 +89,8 @@ function toTimelineRow(
   string | null,
   string | null,
   string | null,
+  string | null,
+  string | null,
 ] {
   return [
     data.id,
@@ -89,8 +105,13 @@ function toTimelineRow(
     data.expenseCategory ?? null,
     data.receivableStatus ?? null,
     isMoneyType(data.moneyType) ? data.moneyType : null,
+    data.source ?? null,
+    data.sourceNotificationId ?? null,
   ];
 }
+
+const INSERT_TIMELINE_SQL = `INSERT INTO timelines (id, user_id, title, description, event_date, show_on_calendar, created_at, updated_at, expense_amount_paise, expense_category, receivable_status, money_type, source, source_notification_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
 function toTimeline(dbRow: TimelineRow, entities: TimelineEntityLink[]): Timeline {
   return {
@@ -107,6 +128,8 @@ function toTimeline(dbRow: TimelineRow, entities: TimelineEntityLink[]): Timelin
     expenseCategory: dbRow.expense_category,
     receivableStatus: dbRow.receivable_status,
     moneyType: isMoneyType(dbRow.money_type) ? dbRow.money_type : null,
+    source: dbRow.source === 'SMS' ? 'SMS' : null,
+    sourceNotificationId: dbRow.source_notification_id,
   };
 }
 
@@ -134,6 +157,7 @@ async function loadEntities(
       avatar: r.avatar,
       createdAt: r.created_at,
       updatedAt: r.updated_at,
+      sourceNotificationId: r.source_notification_id,
     } satisfies Entity,
   }));
 }
@@ -204,11 +228,7 @@ export async function create(
     const db = await getDb();
     await db.withExclusiveTransactionAsync(async (txn) => {
       const values = toTimelineRow(timeline, userId);
-      await txn.runAsync(
-        `INSERT INTO timelines (id, user_id, title, description, event_date, show_on_calendar, created_at, updated_at, expense_amount_paise, expense_category, receivable_status, money_type)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        values,
-      );
+      await txn.runAsync(INSERT_TIMELINE_SQL, values);
       if (entityIds !== undefined && entityIds.length > 0) {
         await replaceLinks(txn, userId, timeline.id, entityIds);
       }
@@ -258,6 +278,14 @@ export async function update(
     if (changes.moneyType !== undefined) {
       sets.push('money_type = ?');
       values.push(isMoneyType(changes.moneyType) ? changes.moneyType : null);
+    }
+    if (changes.source !== undefined) {
+      sets.push('source = ?');
+      values.push(changes.source ?? null);
+    }
+    if (changes.sourceNotificationId !== undefined) {
+      sets.push('source_notification_id = ?');
+      values.push(changes.sourceNotificationId ?? null);
     }
     if (changes.updatedAt !== undefined) {
       sets.push('updated_at = ?');
@@ -411,8 +439,8 @@ async function upsertEntity(
   }
 
   await txn.runAsync(
-    `INSERT INTO entities (id, user_id, name, type, description, avatar, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO entities (id, user_id, name, type, description, avatar, created_at, updated_at, source_notification_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     entity.id,
     userId,
     entity.name,
@@ -421,6 +449,7 @@ async function upsertEntity(
     entity.avatar ?? null,
     entity.createdAt ?? null,
     entity.updatedAt ?? null,
+    entity.sourceNotificationId ?? null,
   );
 }
 
@@ -447,13 +476,37 @@ export async function replaceAll(userId: string, timelines: Timeline[]): Promise
         expense_category: string | null;
         receivable_status: string | null;
         money_type: string | null;
+        source: string | null;
+        source_notification_id: string | null;
       }>(
-        `SELECT id, expense_amount_paise, expense_category, receivable_status, money_type
+        `SELECT id, expense_amount_paise, expense_category, receivable_status, money_type, source, source_notification_id
          FROM timelines
-         WHERE user_id = ? AND (expense_amount_paise IS NOT NULL OR receivable_status IS NOT NULL OR money_type IS NOT NULL)`,
+         WHERE user_id = ? AND (expense_amount_paise IS NOT NULL OR receivable_status IS NOT NULL OR money_type IS NOT NULL OR source IS NOT NULL OR source_notification_id IS NOT NULL)`,
         userId,
       );
       const priorMoneyById = new Map(priorMoney.map((r) => [r.id, r]));
+
+      // A captured SMS can be saved while the phone is offline, so its timeline
+      // (and the entity links it created) exist only on this device. A refresh
+      // must not delete work the user just did, so rows the server has never
+      // seen are held back and re-inserted. Once the server DOES know the row it
+      // comes from the payload as usual, so this can never resurrect a record the
+      // user deleted elsewhere.
+      const localOnlyRows = await txn.getAllAsync<TimelineRow>(
+        `SELECT * FROM timelines
+         WHERE user_id = ? AND source IS NOT NULL AND source_notification_id IS NOT NULL`,
+        userId,
+      );
+      const incomingIds = new Set(timelines.map((t) => t.id));
+      const preserved = localOnlyRows.filter((row) => !incomingIds.has(row.id));
+      const preservedLinks =
+        preserved.length === 0
+          ? []
+          : await txn.getAllAsync<{ timeline_id: string; entity_id: string }>(
+              `SELECT timeline_id, entity_id FROM timeline_entities
+               WHERE timeline_id IN (${preserved.map(() => '?').join(', ')})`,
+              preserved.map((row) => row.id),
+            );
 
       await txn.runAsync(
         `DELETE FROM timeline_entities
@@ -480,14 +533,13 @@ export async function replaceAll(userId: string, timelines: Timeline[]): Promise
               expenseCategory: prior.expense_category ?? timeline.expenseCategory ?? null,
               receivableStatus: prior.receivable_status ?? timeline.receivableStatus ?? null,
               moneyType: isMoneyType(prior.money_type) ? prior.money_type : timeline.moneyType ?? null,
+              source: (prior.source === 'SMS' ? 'SMS' : null) ?? timeline.source ?? null,
+              sourceNotificationId:
+                prior.source_notification_id ?? timeline.sourceNotificationId ?? null,
             } satisfies TimelineInput)
           : timeline;
 
-        await txn.runAsync(
-          `INSERT INTO timelines (id, user_id, title, description, event_date, show_on_calendar, created_at, updated_at, expense_amount_paise, expense_category, receivable_status, money_type)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          toTimelineRow(merged, userId),
-        );
+        await txn.runAsync(INSERT_TIMELINE_SQL, toTimelineRow(merged, userId));
 
         for (const link of links) {
           await txn.runAsync(
@@ -496,6 +548,25 @@ export async function replaceAll(userId: string, timelines: Timeline[]): Promise
             link.entityId,
           );
         }
+      }
+
+      // Re-attach device-only records after the server rows, keeping their links.
+      for (const row of preserved) {
+        await txn.runAsync(INSERT_TIMELINE_SQL, toTimelineRow(toTimeline(row, []), userId));
+      }
+      for (const link of preservedLinks) {
+        const entity = await txn.getFirstAsync<{ user_id: string }>(
+          'SELECT user_id FROM entities WHERE id = ?',
+          link.entity_id,
+        );
+        // A link whose entity is gone (e.g. deleted in the same refresh) is
+        // skipped rather than violating the join table's foreign key.
+        if (!entity || entity.user_id !== userId) continue;
+        await txn.runAsync(
+          'INSERT OR IGNORE INTO timeline_entities (timeline_id, entity_id) VALUES (?, ?)',
+          link.timeline_id,
+          link.entity_id,
+        );
       }
     });
   });

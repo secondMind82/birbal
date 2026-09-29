@@ -11,6 +11,11 @@
 //                or rename a key: old backups must keep parsing.
 //   table      – real SQLite table name (interpolated into SQL; never user data).
 //   columns    – exact column list to read and to write. Order defines bind order.
+//   optionalColumns – subset of `columns` that may be ABSENT from a backup row.
+//                Use it for any column added to a table after backups were
+//                already taken: old payloads simply lack the key and restore them
+//                as NULL, instead of being rejected as corrupt. Without this, any
+//                new column would invalidate every backup users already have.
 //   userScoped – true when the table has a `user_id` column that owns the rows.
 //   order      – restore order. Dependencies must come before dependents, and
 //                the writer deletes in reverse order (children first).
@@ -22,6 +27,9 @@
 // Deliberately EXCLUDED:
 //   app_meta          – device + schema bookkeeping, not user data.
 //   backup_snapshots  – local safety net created by the restore writer itself.
+//   sms_messages      – private, per-device message bodies. The user never asked
+//                       for SMS text to leave the phone, and a restored inbox of
+//                       someone else's messages would be actively harmful.
 
 export type ColumnType = 'text' | 'number' | 'boolean' | 'any';
 
@@ -35,6 +43,11 @@ export interface TableSpec {
   /** Column holding the parent key for join tables (restores a scoped DELETE). */
   parentKey?: string;
   columnTypes?: Readonly<Record<string, ColumnType>>;
+  /**
+   * Columns a row is allowed to omit. Needed for columns introduced after a
+   * backup version shipped; see the file header.
+   */
+  optionalColumns?: readonly string[];
 }
 
 export const BACKUP_TABLES: readonly TableSpec[] = [
@@ -44,8 +57,20 @@ export const BACKUP_TABLES: readonly TableSpec[] = [
     order: 1,
     userScoped: true,
     countsAs: ['entities', 'contacts'],
-    columns: ['id', 'user_id', 'name', 'type', 'description', 'avatar', 'created_at', 'updated_at'],
+    columns: [
+      'id',
+      'user_id',
+      'name',
+      'type',
+      'description',
+      'avatar',
+      'created_at',
+      'updated_at',
+      'source_notification_id',
+    ],
     columnTypes: { name: 'text', type: 'text' },
+    // Added in schema 8; backups taken before it simply have no such key.
+    optionalColumns: ['source_notification_id'],
   },
   {
     key: 'timelines',
@@ -66,8 +91,12 @@ export const BACKUP_TABLES: readonly TableSpec[] = [
       'expense_category',
       'receivable_status',
       'money_type',
+      'source',
+      'source_notification_id',
     ],
     columnTypes: { title: 'text', event_date: 'text', show_on_calendar: 'boolean' },
+    // Added in schema 8; backups taken before it simply have no such key.
+    optionalColumns: ['source', 'source_notification_id'],
   },
   {
     key: 'timeline_entities',
