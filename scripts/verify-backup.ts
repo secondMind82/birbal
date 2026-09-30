@@ -448,6 +448,29 @@ test('a new backup round-trips the SMS provenance columns', async () => {
   assert.equal(after.entities[0].source_notification_id, 'sms-abc');
 });
 
+test('a backup round-trips a MANUAL-source row so an offline expense is not lost', async () => {
+  resetState();
+  const db = fakeDb();
+  const rows = sampleRows();
+  const timeline = rows.timelines[0] as Record<string, unknown>;
+  // Add Expense writes source='MANUAL' with no notification id when the network
+  // is down. That marker is what keeps replaceAll from deleting the row, so it
+  // has to survive a backup/restore round trip too.
+  timeline.source = 'MANUAL';
+  timeline.source_notification_id = null;
+  timeline.expense_amount_paise = 61000;
+  timeline.money_type = 'expense';
+
+  assert.ok(validateBackupRows(rows).ok);
+  await runRestoreTransaction(db, USER, rows);
+
+  const after = visibleTo(USER);
+  assert.equal(after.timelines[0].source, 'MANUAL', 'the device-owned marker must persist');
+  assert.equal(after.timelines[0].source_notification_id, null);
+  assert.equal(after.timelines[0].expense_amount_paise, 61000, 'the amount survives');
+  assert.equal(after.timelines[0].money_type, 'expense');
+});
+
 test('restore is idempotent: repeating it does not duplicate rows', async () => {
   resetState();
   const db = fakeDb();

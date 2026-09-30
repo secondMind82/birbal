@@ -6,10 +6,12 @@ import type { DrawerNavigationProp } from '@react-navigation/drawer';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import AppHeader from './AppHeader';
-import NotificationCenter from './NotificationCenter';
+import NotificationCenter, { type SmsCaptureInfo } from './NotificationCenter';
 import { useNotificationStore } from '../store/notificationStore';
 import { useAuthStore } from '../store/authStore';
 import * as smsService from '../services/smsService';
+import { getSmsPermissionStatus, offerSmsCapture } from '../services/smsPermission';
+import { pendingSmsCount } from '../../modules/birbal-sms';
 import type { AppNotification } from '../models/types';
 import type { RootStackParamList } from '../navigation/types';
 import { useAppTheme } from '../theme';
@@ -31,6 +33,7 @@ export default function AppShell({
   const insets = useSafeAreaInsets();
   const theme = useAppTheme();
   const [notifVisible, setNotifVisible] = useState(false);
+  const [smsCapture, setSmsCapture] = useState<SmsCaptureInfo | null>(null);
   const startPolling = useNotificationStore((s) => s.startPolling);
   const refresh = useNotificationStore((s) => s.refresh);
 
@@ -73,6 +76,47 @@ export default function AppShell({
     })();
   };
 
+  /** Re-reads capture state so the Bell can explain itself instead of going quiet. */
+  const readCaptureState = async (): Promise<SmsCaptureInfo> => {
+    const supported = smsService.isSmsCaptureSupported();
+    const status = await getSmsPermissionStatus(supported);
+    const pending = await pendingSmsCount();
+    const info = { status, pending };
+    setSmsCapture(info);
+    return info;
+  };
+
+  const openNotifications = async () => {
+    await refresh();
+    setNotifVisible(true);
+    // Opening the bell is where the user expects messages to be. If the SMS
+    // permission was never granted, nothing could ever have arrived, so explain
+    // once here instead of leaving the app looking broken. Granting it means the
+    // receiver starts working mid-session, so drain straight afterwards.
+    const grantedNow = await offerSmsCapture(smsService.isSmsCaptureSupported());
+    if (grantedNow) {
+      const userId = useAuthStore.getState().user?.id;
+      if (userId) {
+        await smsService.ingestCapturedSms(userId).catch(() => ({ added: 0, unsupported: false }));
+        await refresh();
+      }
+    }
+    await readCaptureState();
+  };
+
+  /** The Bell's own "Turn on" action: same one-ask flow, then re-read the state. */
+  const enableSms = async () => {
+    const grantedNow = await offerSmsCapture(smsService.isSmsCaptureSupported());
+    if (grantedNow) {
+      const userId = useAuthStore.getState().user?.id;
+      if (userId) {
+        await smsService.ingestCapturedSms(userId).catch(() => ({ added: 0, unsupported: false }));
+        await refresh();
+      }
+    }
+    await readCaptureState();
+  };
+
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
       <StatusBar barStyle="light-content" backgroundColor={theme.sidebarStart} />
@@ -85,8 +129,7 @@ export default function AppShell({
           title={title}
           onOpenDrawer={() => navigation.openDrawer()}
           onOpenNotifications={() => {
-            void refresh();
-            setNotifVisible(true);
+            void openNotifications();
           }}
         />
       </LinearGradient>
@@ -97,6 +140,8 @@ export default function AppShell({
         onOpenNotification={openFromNotification}
         onEditSms={editSms}
         onIgnoreSms={ignoreSms}
+        smsCapture={smsCapture}
+        onEnableSms={() => void enableSms()}
       />
     </View>
   );

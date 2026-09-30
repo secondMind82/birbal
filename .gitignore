@@ -40,5 +40,10 @@ yarn-error.*
 /ios
 /android
 
+# Gradle output of the local native modules (birbal-sms). The app's /android
+# is ignored above; this is the sibling build directory inside the module.
+/modules/*/android/build/
+/modules/*/android/.gradle/
+
 # Backup & Restore verification build output
 .verify-build/

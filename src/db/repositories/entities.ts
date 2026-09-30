@@ -51,7 +51,11 @@ function toEntity(row: EntityRow): Entity {
     id: row.id,
     userId: row.user_id,
     name: row.name,
-    type: row.type,
+    // The API answers 'Person'/'Place' in title case while the app compares
+    // against 'PERSON'/'PLACE', so an entity created from an SMS did not match
+    // any of those checks. Normalising once here keeps every screen's existing
+    // comparison correct without touching each of them.
+    type: (row.type ?? '').toUpperCase(),
     description: row.description,
     avatar: row.avatar,
     createdAt: row.created_at,

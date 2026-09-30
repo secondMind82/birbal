@@ -25,7 +25,10 @@ export interface CapturedSms {
 
 type BirbalSmsNativeModule = {
   isAvailable(): Promise<boolean>;
+  /** Peeks the queue. Messages stay until `ack` confirms they were stored. */
   drain(): Promise<CapturedSms[]>;
+  /** Permanently removes messages that are now safely in local storage. */
+  ack(ids: string[]): Promise<void>;
   pendingCount(): Promise<number>;
 } & NativeModule;
 
@@ -56,7 +59,14 @@ export function smsCaptureAvailable(): boolean {
 }
 
 /**
- * Returns every SMS captured since the last drain and clears the native queue.
+ * Returns every SMS the native receiver has captured, WITHOUT consuming them.
+ *
+ * The queue is only cleared by [ackSmsInbox], once the caller has durably stored
+ * each message. That ordering is deliberate: if the app is killed, crashes, or
+ * the database is locked between reading and writing, the message is still in the
+ * queue and comes back on the next drain. Re-handling a message that did get
+ * stored is harmless because the local table is keyed by the message id.
+ *
  * Returns an empty list on any platform or failure — callers must never have to
  * special-case a missing module.
  */
@@ -72,6 +82,23 @@ export async function drainSmsInbox(): Promise<CapturedSms[]> {
     );
   } catch {
     return [];
+  }
+}
+
+/**
+ * Confirms the given messages are safely stored locally, releasing them from the
+ * native queue. Anything not acknowledged is redelivered next time.
+ *
+ * Never throws: a failed ack costs a redelivery, which is safe, whereas throwing
+ * here could discard a successfully stored message.
+ */
+export async function ackSmsInbox(ids: string[]): Promise<void> {
+  const module = native();
+  if (!module || ids.length === 0) return;
+  try {
+    await module.ack(ids);
+  } catch {
+    /* keep the messages queued; the next drain will retry */
   }
 }
 

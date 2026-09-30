@@ -13,6 +13,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import AppShell from '../components/AppShell';
+import MoneyPanel from '../components/MoneyPanel';
 import { getErrorMessage } from '../api/client';
 import { Card, EmptyState } from '../components/ui';
 import type { Timeline } from '../models/types';
@@ -20,7 +21,13 @@ import { useAuthStore } from '../store/authStore';
 import * as timelinesService from '../services/timelinesService';
 import * as expensesService from '../services/expensesService';
 import { activityEmoji, parseActivity } from '../utils/activityParser';
-import { formatPaise, isReceivablePending, localMonthKey } from '../utils/money';
+import {
+  formatPaise,
+  isReceivablePending,
+  localMonthKey,
+  moneyPresentation,
+  moneyToneColors,
+} from '../utils/money';
 import { radii, shadows, spacing, useAppStyles, useAppTheme } from '../theme';
 import type { BirbalTheme } from '../theme';
 
@@ -249,31 +256,11 @@ function TimelineCard({
   const parsed = parseActivity(description);
   const hasPlaceTag = /#\w/.test(description);
 
-  const isIncome = event.moneyType === 'receive';
-  const isSpent = event.moneyType === 'expense';
-  const pendingCredit = isIncome && isReceivablePending(event.receivableStatus);
-  const statusLabel = isIncome
-    ? isReceivablePending(event.receivableStatus)
-      ? 'Pending'
-      : event.receivableStatus === 'received'
-        ? 'Received'
-        : 'Ignored'
-    : 'Paid';
-  const moneyLine =
-    event.expenseAmountPaisa != null
-      ? isIncome
-        ? `MONEY RECEIVABLE · ${formatPaise(event.expenseAmountPaisa)} · ${statusLabel}`
-        : `EXPENSE · ${formatPaise(event.expenseAmountPaisa)} · ${statusLabel}${
-            event.expenseCategory && event.expenseCategory !== 'Other'
-              ? ` · ${event.expenseCategory}`
-              : ''
-          }`
-      : '';
-  const statusTone = isIncome
-    ? isReceivablePending(event.receivableStatus)
-      ? t.danger
-      : t.success
-    : t.accent;
+  // One decision, from utils/money, drives both the label/status text and the
+  // card's colour. A row with no amount gets no money treatment at all.
+  const money = moneyPresentation(event);
+  const pendingCredit = money?.tone === 'pending';
+  const moneyTint = money ? moneyToneColors(t, money.tone) : null;
 
   const category = parsed.matched
     ? parsed.title
@@ -315,7 +302,7 @@ function TimelineCard({
   };
 
   return (
-    <Card style={styles.card}>
+    <Card style={[styles.card, moneyTint && { backgroundColor: moneyTint.wash, borderColor: moneyTint.accent }]}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Open timeline detail"
@@ -357,10 +344,9 @@ function TimelineCard({
           </View>
         ) : null}
 
+        {money ? <MoneyPanel money={money} /> : null}
+
         <View style={styles.stampRow}>
-          {moneyLine ? (
-            <Text style={[styles.amountText, { color: statusTone }]}>{moneyLine}</Text>
-          ) : null}
           <Text style={styles.stampText}>{stamp}</Text>
         </View>
       </Pressable>
@@ -474,12 +460,6 @@ const makeStyles = (t: BirbalTheme) => ({
   },
   tagText: { fontSize: 12, fontWeight: '600', color: t.accent },
   stampRow: { marginTop: spacing.md, alignItems: 'flex-end' },
-  amountText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: t.accent,
-    marginBottom: 3,
-  },
   stampText: { fontSize: 11, color: t.textSecondary, letterSpacing: 0.1 },
   moneyActions: {
     flexDirection: 'row',

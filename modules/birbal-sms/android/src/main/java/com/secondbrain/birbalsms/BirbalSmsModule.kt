@@ -25,9 +25,11 @@ class BirbalSmsModule : Module() {
       true
     }
 
+    // Peek only: JS calls "ack" once a message is safely in SQLite, so a crash
+    // between here and there costs a redelivery instead of losing a real SMS.
     AsyncFunction("drain") {
       val context = appContext.reactContext ?: return@AsyncFunction emptyList<Map<String, Any?>>()
-      SmsInboxStore.drain(context).map { record ->
+      SmsInboxStore.peek(context).map { record ->
         mapOf(
           "id" to record.optString("id"),
           "sender" to record.optString("sender"),
@@ -35,6 +37,11 @@ class BirbalSmsModule : Module() {
           "receivedAt" to record.optLong("receivedAt"),
         )
       }
+    }
+
+    AsyncFunction("ack") { ids: List<String> ->
+      val context = appContext.reactContext ?: return@AsyncFunction
+      SmsInboxStore.ack(context, ids.filter { it.isNotBlank() }.toSet())
     }
 
     AsyncFunction("pendingCount") {

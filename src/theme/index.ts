@@ -24,7 +24,9 @@ export interface BirbalTheme {
   border: string;
   borderFaint: string;
   danger: string;
+  dangerSoft: string;
   success: string;
+  successSoft: string;
   accent: string;
   accentSoft: string;
   accent2: string;
@@ -56,7 +58,11 @@ export const colors: BirbalTheme = {
   border: '#ECE6F0',
   borderFaint: '#F3EEF6',
   danger: '#E0657A',
+  // Very light washes used as the full-card background for a money row, so a
+  // status reads at a glance without a heavy block of colour.
+  dangerSoft: '#FDEDF0',
   success: '#5FA98C',
+  successSoft: '#E9F6EF',
   accent: '#7C5CDE',
   accentSoft: '#F1EBFF',
   accent2: '#E29CC8',
@@ -88,7 +94,9 @@ export const darkColors: BirbalTheme = {
   border: '#2B253A',
   borderFaint: '#221D30',
   danger: '#F2798F',
+  dangerSoft: 'rgba(242, 121, 143, 0.26)',
   success: '#6FCFA6',
+  successSoft: 'rgba(111, 207, 166, 0.26)',
   accent: '#B79DFF',
   accentSoft: 'rgba(183, 157, 255, 0.16)',
   accent2: '#F0A8D0',

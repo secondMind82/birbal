@@ -22,8 +22,16 @@ const CURRENCY_RE = /₹|\b(?:rs|inr|rupees)\b\.?/i;
 /** The digits that immediately follow such an indicator. */
 const AMOUNT_DIGITS_RE = /^\s*(\d[\d,]*(?:\.\d{1,2})?)/;
 
-/** Verbs that put money IN to the account. */
-const RECEIVE_VERBS = /\b(?:credited?|received|refunded?|reversal|reversed|cashback|deposited|added to)\b/i;
+/**
+ * Verbs that put money IN to the account.
+ *
+ * The second group is the conversational form people actually type on the review
+ * screen — "@Shaaf give me amount ₹5000", "Aman owes me ₹3,000". Without these,
+ * the single most common edit produced a Timeline entry with NO amount at all,
+ * because an amount with no direction is not enough to create money.
+ */
+const RECEIVE_VERBS =
+  /\b(?:credited?|received|refunded?|reversal|reversed|cashback|deposited|added to|give\s?me|gave\s?me|pay\s?me|owes?\s?me|lends?\s?me|owed\s?me|to\s?be\s?paid\s?to\s?me)\b/i;
 
 /** Verbs that take money OUT of the account. */
 const EXPENSE_VERBS = /\b(?:debited?|paid|payment|payment of|spent|purchased?|sent|transferred?|withdrew|withdrawn|billed|charged)\b/i;

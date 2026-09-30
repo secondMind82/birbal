@@ -116,6 +116,18 @@ test('INR and ₹ amounts both parse', () => {
   assert.deepEqual(extractSmsMoney('₹250 refunded to your wallet'), { role: 'receive', amountPaise: 25000 });
 });
 
+test('the money someone is asked for on the review screen still counts', () => {
+  // The documented flow is: Bell -> Edit -> "@Shaaf give me amount ₹5000" -> Save.
+  // "give me" is how people ask for money they are owed, so it must produce a
+  // receivable rather than silently dropping the amount.
+  assert.deepEqual(extractSmsMoney('@Shaaf give me amount ₹5000'), { role: 'receive', amountPaise: 500000 });
+  assert.deepEqual(extractSmsMoney('Aman owes me ₹3,000'), { role: 'receive', amountPaise: 300000 });
+  // Two things must stay conservative, or the Timeline fills with fake money:
+  // a bare number with no currency marker, and an amount with no direction.
+  assert.equal(extractSmsMoney('give me 2000'), null);
+  assert.equal(extractSmsMoney('@Rohan grocery ₹999'), null);
+});
+
 test('the balance sentence does not override the primary action direction', () => {
   const m = extractSmsMoney('Paid Rs 999.00 to SHAFT. Available balance Rs 7000.00');
   assert.deepEqual(m, { role: 'expense', amountPaise: 99900 });

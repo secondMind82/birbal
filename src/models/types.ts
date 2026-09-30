@@ -122,8 +122,18 @@ export interface Timeline {
   sourceNotificationId?: string | null;
 }
 
-/** Local-only record origin. Currently only SMS capture creates records. */
-export type TimelineSource = 'SMS';
+/**
+ * Local-only record origin, marking a row this device owns outright.
+ *
+ * 'SMS'   — created by saving a captured SIM message; sourceNotificationId points
+ *           at the sms_messages row.
+ * 'MANUAL'— created on-device by the Add Expense form when the network was down,
+ *           so the server has never seen it. Carries no notification id.
+ *
+ * Both exist so replaceAll can hold a device-only row back instead of deleting
+ * work the user just did. NULL means the server owns the row.
+ */
+export type TimelineSource = 'SMS' | 'MANUAL';
 
 export interface ExpenseMeta {
   amountPaise: number;

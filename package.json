@@ -49,7 +49,11 @@
     "verify:backup": "rm -rf .verify-build && tsc -p tsconfig.scripts.json && BIRBAL_ROOT=\"$PWD\" node --test .verify-build/birbal/scripts/verify-backup.js",
     "verify:backup:build": "tsc -p tsconfig.scripts.json",
     "verify:backup:live": "tsc -p tsconfig.scripts.json && BIRBAL_ROOT=\"$PWD\" node .verify-build/birbal/scripts/verify-backup-live.js",
-    "verify:sms": "tsc -p tsconfig.scripts.json && BIRBAL_ROOT=\"$PWD\" node --test .verify-build/birbal/scripts/verify-sms.js"
+    "verify:sms": "tsc -p tsconfig.scripts.json && BIRBAL_ROOT=\"$PWD\" node --test .verify-build/birbal/scripts/verify-sms.js",
+    "verify:bell": "tsc -p tsconfig.scripts.json && BIRBAL_ROOT=\"$PWD\" node --test .verify-build/birbal/scripts/verify-bell.js",
+    "verify:sms:pipe": "tsc -p tsconfig.scripts.json && BIRBAL_ROOT=\"$PWD\" node --test .verify-build/birbal/scripts/verify-sms-pipeline.js",
+    "verify:money": "tsc -p tsconfig.scripts.json && BIRBAL_ROOT=\"$PWD\" node --test .verify-build/birbal/scripts/verify-money.js .verify-build/birbal/scripts/verify-expense-flow.js .verify-build/birbal/scripts/verify-sms-permission.js .verify-build/birbal/scripts/verify-timeline-money.js",
+    "verify": "npm run verify:sms && npm run verify:sms:pipe && npm run verify:bell && npm run verify:money && npm run verify:backup"
   },
   "private": true
 }

@@ -1,6 +1,6 @@
 import { getDb, serializeWrite } from '../database';
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { isMoneyType } from '../../utils/money';
+import { isMoneyType, isTimelineSource } from '../../utils/money';
 import type {
   Timeline,
   TimelineEntityLink,
@@ -128,7 +128,7 @@ function toTimeline(dbRow: TimelineRow, entities: TimelineEntityLink[]): Timelin
     expenseCategory: dbRow.expense_category,
     receivableStatus: dbRow.receivable_status,
     moneyType: isMoneyType(dbRow.money_type) ? dbRow.money_type : null,
-    source: dbRow.source === 'SMS' ? 'SMS' : null,
+    source: isTimelineSource(dbRow.source) ? dbRow.source : null,
     sourceNotificationId: dbRow.source_notification_id,
   };
 }
@@ -486,15 +486,16 @@ export async function replaceAll(userId: string, timelines: Timeline[]): Promise
       );
       const priorMoneyById = new Map(priorMoney.map((r) => [r.id, r]));
 
-      // A captured SMS can be saved while the phone is offline, so its timeline
-      // (and the entity links it created) exist only on this device. A refresh
-      // must not delete work the user just did, so rows the server has never
-      // seen are held back and re-inserted. Once the server DOES know the row it
-      // comes from the payload as usual, so this can never resurrect a record the
-      // user deleted elsewhere.
+      // A record can be created on-device while the phone is offline (an Add
+      // Expense entry, or an SMS saved without signal), so its timeline and the
+      // entity links it created exist only on this device. `source` is what marks
+      // such a row as device-owned. A refresh must not delete work the user just
+      // did, so rows the server has never seen are held back and re-inserted.
+      // Once the server DOES know the row it comes from the payload as usual, so
+      // this can never resurrect a record the user deleted elsewhere.
       const localOnlyRows = await txn.getAllAsync<TimelineRow>(
         `SELECT * FROM timelines
-         WHERE user_id = ? AND source IS NOT NULL AND source_notification_id IS NOT NULL`,
+         WHERE user_id = ? AND source IS NOT NULL`,
         userId,
       );
       const incomingIds = new Set(timelines.map((t) => t.id));
@@ -507,6 +508,28 @@ export async function replaceAll(userId: string, timelines: Timeline[]): Promise
                WHERE timeline_id IN (${preserved.map(() => '?').join(', ')})`,
               preserved.map((row) => row.id),
             );
+
+      // Snapshot the existing links for server-owned rows too, so a payload that
+      // omits the `entities` array entirely (a partial response) cannot silently
+      // unlink entities the user attached. persistTimeline already treats a
+      // missing array as "unknown" and falls back to the request's entityIds;
+      // replaceAll must agree. An explicit empty array is the server saying the
+      // link was removed, and is still honoured.
+      //
+      // Read BEFORE the deletes below, while the links still exist.
+      const priorLinks = await txn.getAllAsync<{ timeline_id: string; entity_id: string }>(
+        `SELECT te.timeline_id AS timeline_id, te.entity_id AS entity_id
+         FROM timeline_entities te
+         JOIN timelines t ON t.id = te.timeline_id
+         WHERE t.user_id = ?`,
+        userId,
+      );
+      const priorLinksByTimeline = new Map<string, string[]>();
+      for (const link of priorLinks) {
+        const list = priorLinksByTimeline.get(link.timeline_id) ?? [];
+        list.push(link.entity_id);
+        priorLinksByTimeline.set(link.timeline_id, list);
+      }
 
       await txn.runAsync(
         `DELETE FROM timeline_entities
@@ -533,7 +556,7 @@ export async function replaceAll(userId: string, timelines: Timeline[]): Promise
               expenseCategory: prior.expense_category ?? timeline.expenseCategory ?? null,
               receivableStatus: prior.receivable_status ?? timeline.receivableStatus ?? null,
               moneyType: isMoneyType(prior.money_type) ? prior.money_type : timeline.moneyType ?? null,
-              source: (prior.source === 'SMS' ? 'SMS' : null) ?? timeline.source ?? null,
+              source: (isTimelineSource(prior.source) ? prior.source : null) ?? timeline.source ?? null,
               sourceNotificationId:
                 prior.source_notification_id ?? timeline.sourceNotificationId ?? null,
             } satisfies TimelineInput)
@@ -547,6 +570,18 @@ export async function replaceAll(userId: string, timelines: Timeline[]): Promise
             timeline.id,
             link.entityId,
           );
+        }
+
+        // The payload said nothing about links for this row, so keep the ones we
+        // already had instead of dropping the entity the user attached.
+        if (!Array.isArray(timeline.entities)) {
+          for (const entityId of priorLinksByTimeline.get(timeline.id) ?? []) {
+            await txn.runAsync(
+              'INSERT INTO timeline_entities (timeline_id, entity_id) VALUES (?, ?)',
+              timeline.id,
+              entityId,
+            );
+          }
         }
       }
 

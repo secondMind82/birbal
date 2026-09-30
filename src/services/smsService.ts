@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto';
 
-import { drainSmsInbox, smsCaptureAvailable } from '../../modules/birbal-sms';
+import { ackSmsInbox, drainSmsInbox, smsCaptureAvailable } from '../../modules/birbal-sms';
 import type { CapturedSms } from '../../modules/birbal-sms';
 import * as smsMessagesRepository from '../db/repositories/smsMessages';
 import * as timelinesRepository from '../db/repositories/timelines';
@@ -92,8 +92,20 @@ export async function ingestCapturedSms(userId: string): Promise<IngestResult> {
   }
 
   let added = 0;
-  for (const item of captured) {
-    if (await storeCaptured(userId, item)) added += 1;
+  // Ids are only acknowledged to the native queue once each message is durably
+  // in SQLite. If storing one throws, the loop bails and that message — along
+  // with everything after it — stays queued natively and is redelivered on the
+  // next drain, instead of being destroyed by a drain that ran first.
+  const stored: string[] = [];
+  try {
+    for (const item of captured) {
+      // `added` counts only genuinely new messages, so a redelivery left over from
+      // a crash does not make the app look like it received something new.
+      if (await storeCaptured(userId, item)) added += 1;
+      stored.push(item.id);
+    }
+  } finally {
+    await ackSmsInbox(stored);
   }
 
   // Housekeeping: message bodies age out once nobody is waiting on them.
@@ -113,7 +125,9 @@ async function storeCaptured(userId: string, item: CapturedSms): Promise<boolean
   });
 
   if (!created) {
-    return false; // Already known: a redelivery, or a second drain.
+    // Already known: a redelivery, or a second drain. Nothing to raise, and the
+    // caller still acknowledges it so it stops being redelivered.
+    return false;
   }
 
   await raiseSmsNotification(userId, message, classification);
@@ -165,9 +179,11 @@ export async function ignoreSms(userId: string, id: string): Promise<boolean> {
 }
 
 async function dismissNotification(userId: string, notificationId: string): Promise<void> {
-  // Marking read (rather than deleting) keeps the notification history honest
-  // and matches how every other notification in the app is dismissed.
-  await notificationsRepository.markRead(userId, notificationId).catch(() => false);
+  // Removed rather than marked read: once a message has been ignored or turned
+  // into a record, its bell entry is no longer actionable, and NotificationCenter
+  // would otherwise keep offering Review/Ignore for something already decided.
+  // The message itself stays in sms_messages as the audit trail, with its status.
+  await notificationsRepository.remove(userId, notificationId).catch(() => false);
 }
 
 export interface SaveSmsInput {
@@ -253,7 +269,11 @@ export async function saveSms(
     moneyType,
     amountPaise,
     category: parsed.money?.category ?? detectExpenseCategory(text),
-    receivableStatus: parsed.money?.status ?? null,
+    // A receive with no explicit settlement is money owed TO us, so it is
+    // pending. The offline path already defaulted this way; without the same
+    // default here the same message saved as 'pending' offline and as a
+    // settled credit online.
+    receivableStatus: parsed.money?.status ?? (moneyType === 'receive' ? 'pending' : null),
     linkedIds,
     message,
   });
@@ -262,10 +282,11 @@ export async function saveSms(
     status: 'PROCESSED',
     timelineId: timeline.id,
   });
-  await markSmsNotificationRead(userId, notificationIdFor(message.id));
+  await dismissNotification(userId, notificationIdFor(message.id));
 
-  // Offline means anything landed only on the device — an entity, the timeline,
-  // or both. The review screen shows that so the user knows a sync is pending.
+  // Offline means something genuinely landed ONLY on the device: an entity the
+  // server refused, or the timeline itself. The review screen says so, so a
+  // normal save of a brand-new @mention does not claim a sync that is not needed.
   return { timeline, alreadySaved: false, offline: createdLocally || timelineOffline };
 }
 
@@ -322,10 +343,12 @@ async function resolveEntities(
       link(existing.id);
       continue;
     }
-    const created = await createLocalEntity(userId, name, message.id);
+    const { entity: created, localOnly } = await createEntityForMention(userId, name, message.id);
     entities = [...entities, created];
     link(created.id);
-    createdLocally = true;
+    // Only a mention the SERVER refused leaves anything unsynced. Creating a
+    // brand-new person is the normal path and must not be reported as offline.
+    if (localOnly) createdLocally = true;
   }
 
   // Sender fallback: a personal message from someone the user has not met in
@@ -336,9 +359,9 @@ async function resolveEntities(
     if (existing) {
       link(existing.id);
     } else {
-      const created = await createLocalEntity(userId, name, message.id);
+      const { entity: created, localOnly } = await createEntityForMention(userId, name, message.id);
       link(created.id);
-      createdLocally = true;
+      if (localOnly) createdLocally = true;
     }
   }
 
@@ -362,11 +385,19 @@ function personNameFromSender(sender: string): string {
  * The local fallback is what makes an offline save possible; the row is stamped
  * with the originating message so a later server refresh keeps it.
  */
-async function createLocalEntity(
+/**
+ * Creates the Entity a mention refers to.
+ *
+ * `localOnly` is true only when the server could not be reached, i.e. when this
+ * entity genuinely exists on the device alone. Creating a NEW entity is the
+ * expected case for "@Shaaf", so a successful server create is not "offline" —
+ * conflating the two made every first-time save claim a pending sync.
+ */
+async function createEntityForMention(
   userId: string,
   name: string,
   smsId: string,
-): Promise<Entity> {
+): Promise<{ entity: Entity; localOnly: boolean }> {
   const request = {
     name,
     type: classifyEntityType(name),
@@ -374,7 +405,7 @@ async function createLocalEntity(
   };
 
   try {
-    return await entitiesService.createEntity(userId, request);
+    return { entity: await entitiesService.createEntity(userId, request), localOnly: false };
   } catch {
     const local: Entity = {
       id: `ent-sms-${Crypto.randomUUID()}`,
@@ -390,7 +421,7 @@ async function createLocalEntity(
       description: local.description ?? null,
       sourceNotificationId: smsId,
     });
-    return local;
+    return { entity: local, localOnly: true };
   }
 }
 
@@ -492,11 +523,7 @@ async function createLocalTimeline(args: PersistTimelineArgs): Promise<Timeline>
   return created;
 }
 
-async function markSmsNotificationRead(userId: string, notificationId: string): Promise<void> {
-  // The message is no longer awaiting review, so it leaves the unread list; the
-  // record it produced now shows up in the normal Timeline notifications.
-  await notificationsRepository.markRead(userId, notificationId).catch(() => false);
-}
+
 
 /** Parsed amount for the edit screen's hint; null when the text carries none. */
 export function amountFromText(text: string): number | null {

@@ -5,7 +5,8 @@
 // Hermes (no reliable Intl) and JSC. Date keys are built from LOCAL calendar values
 // so "Today", "This Week" and "This Month" never drift across UTC boundaries.
 
-import type { MoneyType } from '../models/types';
+import type { MoneyType, TimelineSource } from '../models/types';
+import type { BirbalTheme } from '../theme';
 
 export const EXPENSE_CATEGORIES = [
   'Grocery',
@@ -52,6 +53,15 @@ export const MONEY_TYPES: readonly MoneyType[] = ['expense', 'receive'];
 
 export function isMoneyType(value?: string | null): value is MoneyType {
   return !!value && (MONEY_TYPES as readonly string[]).includes(value);
+}
+
+// Values accepted in the local-only timelines.source column. Anything else is
+// treated as NULL, which is what makes a server-owned row (source NULL) the
+// only thing replaceAll is allowed to delete.
+export const TIMELINE_SOURCES: readonly TimelineSource[] = ['SMS', 'MANUAL'];
+
+export function isTimelineSource(value?: string | null): value is TimelineSource {
+  return !!value && (TIMELINE_SOURCES as readonly string[]).includes(value);
 }
 
 // Receivable lifecycle on a receive-direction entry. Pending = classified but
@@ -163,4 +173,127 @@ export function periodEndsInDays(start: Date, days: number): Date {
   const end = new Date(start);
   end.setDate(end.getDate() + days);
   return end;
+}
+/**
+ * How a money row should look and read on the Timeline.
+ *
+ * The Timeline keeps every financial field it always had — Credit Received,
+ * Credit Pending, Debit Amount, amount, and the Paid/Received/Pending status —
+ * and this is the single place that decides which of them applies to a row, so
+ * the card and the Expenses page can never disagree about what a record means.
+ *
+ * It lives here, rather than inside the screen, because "is this credit, and is
+ * it settled?" is a rule about the data and not about how it is drawn.
+ */
+export type MoneyTone = 'received' | 'pending' | 'debit' | 'ignored';
+
+export interface MoneyPresentation {
+  tone: MoneyTone;
+  /** Section heading over the amount, e.g. "Credit Received" / "Debit Amount". */
+  amountLabel: string;
+  /** Status badge text, e.g. "Received" / "Pending" / "Paid". */
+  statusLabel: string;
+  /** Short headline, e.g. "Payment Received". */
+  headline: string;
+  amountPaise: number;
+  /** Category for a debit, when the row carries a meaningful one. */
+  category?: string | null;
+}
+
+/** The money fields a presentation depends on. */
+interface MoneyFields {
+  moneyType?: MoneyType | null;
+  expenseAmountPaisa?: number | null;
+  receivableStatus?: string | null;
+  expenseCategory?: string | null;
+}
+
+/**
+ * Returns how to present a timeline row's money, or null when the row carries no
+ * amount and so is not a financial card at all.
+ *
+ * Direction, not wording, decides the treatment: a NULL money_type is a debit
+ * (those rows predate the direction column), and 'receive' is a credit whose
+ * receivable status decides Received vs Pending.
+ */
+export function moneyPresentation(fields: MoneyFields): MoneyPresentation | null {
+  const amount = fields.expenseAmountPaisa;
+  if (amount == null) return null;
+
+  if (fields.moneyType === 'receive') {
+    if (isReceivablePending(fields.receivableStatus)) {
+      return {
+        tone: 'pending',
+        amountLabel: 'Credit Pending',
+        statusLabel: 'Pending',
+        headline: 'Payment Pending',
+        amountPaise: amount,
+      };
+    }
+    if (fields.receivableStatus === 'received') {
+      return {
+        tone: 'received',
+        amountLabel: 'Credit Received',
+        statusLabel: 'Received',
+        headline: 'Payment Received',
+        amountPaise: amount,
+      };
+    }
+    return {
+      tone: 'ignored',
+      amountLabel: 'Credit Ignored',
+      statusLabel: 'Ignored',
+      headline: 'Payment Ignored',
+      amountPaise: amount,
+    };
+  }
+
+  const category =
+    fields.expenseCategory && fields.expenseCategory !== 'Other' ? fields.expenseCategory : null;
+  return {
+    tone: 'debit',
+    amountLabel: 'Debit Amount',
+    statusLabel: 'Paid',
+    headline: 'Payment Made',
+    amountPaise: amount,
+    category,
+  };
+}
+
+/**
+ * A plain-text rendering of the same facts, for places that only have one line
+ * (the current metadata row, accessibility labels and tests).
+ */
+export function moneyLine(fields: MoneyFields): string {
+  const p = moneyPresentation(fields);
+  if (!p) return '';
+  const parts = [p.amountLabel, formatPaise(p.amountPaise), p.statusLabel];
+  if (p.category) parts.push(p.category);
+  return parts.join(' · ');
+}
+
+/**
+ * The accent + very light wash for a money tone.
+ *
+ * Received reads green, Pending reads red, a dismissed credit reads neutral, and
+ * a debit reads in the brand accent so it is clearly its own thing without
+ * borrowing either status colour. Exported so the Timeline can tint the whole
+ * card and this panel can tint its block from the same decision.
+ */
+export function moneyToneColors(
+  t: BirbalTheme,
+  tone: MoneyPresentation['tone'],
+): { accent: string; wash: string } {
+  return {
+    accent:
+      tone === 'received' ? t.success : tone === 'pending' ? t.danger : tone === 'ignored' ? t.textSecondary : t.accent,
+    wash:
+      tone === 'received'
+        ? t.successSoft
+        : tone === 'pending'
+          ? t.dangerSoft
+          : tone === 'ignored'
+            ? t.surfaceVariant
+            : t.accentSoft,
+  };
 }

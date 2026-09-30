@@ -14,6 +14,8 @@ import { Button, Card } from './ui';
 import { spacing, useAppStyles, useAppTheme } from '../theme';
 import type { BirbalTheme } from '../theme';
 import * as smsService from '../services/smsService';
+import { resetSmsPermissionAsk } from '../services/smsPermission';
+import { useAuthStore } from '../store/authStore';
 
 /**
  * Permission control for SIM SMS capture.
@@ -45,8 +47,12 @@ export default function SmsPermissionCard() {
       setStatus('unsupported');
       return;
     }
+    // PermissionsAndroid.check() reports only granted/denied — it cannot tell a
+    // first-time install from a permission that was already turned down — so a
+    // not-granted result is reported honestly as 'denied' rather than pretending
+    // the user has never been asked.
     const granted = await PermissionsAndroid.check(RECEIVE_SMS);
-    setStatus(granted ? 'granted' : 'undetermined');
+    setStatus(granted ? 'granted' : 'denied');
   }, []);
 
   useEffect(() => {
@@ -60,6 +66,15 @@ export default function SmsPermissionCard() {
       // 'never_ask_again' means Android will not show the dialog again, so the
       // only way forward is the system settings screen.
       setStatus(result === 'granted' ? 'granted' : result === 'never_ask_again' ? 'blocked' : 'denied');
+      if (result === 'granted') {
+        // Settings is the escape hatch from a refusal at the notification bell, so
+        // granting here clears the remembered "Not now" and the bell stops asking.
+        await resetSmsPermissionAsk();
+        // The receiver only starts working once granted, and anything it captured
+        // while the dialog was up is already queued natively.
+        const userId = useAuthStore.getState().user?.id;
+        if (userId) await smsService.ingestCapturedSms(userId).catch(() => undefined);
+      }
     } catch {
       setStatus('denied');
     } finally {
@@ -81,8 +96,10 @@ export default function SmsPermissionCard() {
       <Card>
         <Text style={styles.sectionTitle}>SMS Capture</Text>
         <Text style={styles.desc}>
-          SMS capture is not available in this build. It needs an Android development
-          build; nothing about your messages is being read.
+          SMS capture is not available in this build, because the birbal-sms native
+          module is missing from it. Nothing about your messages is being read, but
+          incoming SIM messages cannot reach Birbal until the app is rebuilt with
+          that module included.
         </Text>
       </Card>
     );

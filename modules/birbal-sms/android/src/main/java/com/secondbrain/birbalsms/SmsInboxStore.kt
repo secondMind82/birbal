@@ -106,14 +106,31 @@ internal object SmsInboxStore {
     }
   }
 
-  /** Returns every queued message and clears the queue, so JS takes ownership. */
-  fun drain(context: Context): List<JSONObject> = synchronized(lock) {
+  /**
+   * Returns every queued message WITHOUT removing any of them.
+   *
+   * The queue is deliberately peek-only. JS owns durability from this point on:
+   * it writes each message into SQLite and only then calls [ack]. A version that
+   * cleared the file here would permanently destroy a real SMS if the app was
+   * killed, crashed, or hit a locked database between the read and the write,
+   * because there would be no second copy anywhere. Re-delivering a message that
+   * was already stored is harmless, because the local table is keyed by the
+   * message id.
+   */
+  fun peek(context: Context): List<JSONObject> = synchronized(lock) { readAll(fileFor(context)) }
+
+  /**
+   * Removes the given message ids, after JS has durably stored them.
+   *
+   * Unknown ids are ignored so an ack can never fail and strand the queue.
+   */
+  fun ack(context: Context, ids: Set<String>) = synchronized(lock) {
+    if (ids.isEmpty()) return
     val file = fileFor(context)
-    val items = readAll(file)
-    if (items.isNotEmpty()) {
-      writeAll(file, emptyList())
+    val remaining = readAll(file).filterNot { ids.contains(it.optString("id")) }
+    if (remaining.size != readAll(file).size) {
+      writeAll(file, remaining)
     }
-    items
   }
 
   fun count(context: Context): Int = synchronized(lock) { readAll(fileFor(context)).size }

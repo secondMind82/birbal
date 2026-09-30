@@ -102,6 +102,26 @@ export async function markRead(userId: string, id: string): Promise<boolean> {
   });
 }
 
+/**
+ * Removes a notification outright.
+ *
+ * Used when a notification stops being actionable rather than merely read — an
+ * SMS the user ignored or turned into a timeline entry. Leaving it in the list
+ * would keep offering Review/Ignore buttons for something already decided, and
+ * keep its badge dot lit forever.
+ */
+export async function remove(userId: string, id: string): Promise<boolean> {
+  return serializeWrite(async () => {
+    const db = await getDb();
+    const result = await db.runAsync(
+      'DELETE FROM notifications WHERE id = ? AND user_id = ?',
+      id,
+      userId,
+    );
+    return result.changes > 0;
+  });
+}
+
 export async function markAllRead(userId: string): Promise<void> {
   return serializeWrite(async () => {
     const db = await getDb();

@@ -27,12 +27,37 @@ function notificationIcon(n: AppNotification): string {
   return n.icon ?? TYPE_ICONS[n.type];
 }
 
+/**
+ * Why the Bell might be empty of messages.
+ *
+ * This sheet is the only place the user looks when nothing arrived, so it says so
+ * here rather than leaving an unexplained empty list. `unsupported` is the case
+ * that matters most: the native module is missing from the build, so capture can
+ * never work and no amount of waiting will change it.
+ */
+export interface SmsCaptureInfo {
+  status: 'unsupported' | 'granted' | 'undetermined' | 'denied' | 'blocked';
+  /** Messages the native receiver is holding that JS has not stored yet. */
+  pending: number;
+}
+
+const CAPTURE_COPY: Record<SmsCaptureInfo['status'], string> = {
+  unsupported:
+    'Message capture is not available in this build, so incoming SIM messages cannot reach Birbal.',
+  granted: 'Incoming SIM messages will appear here automatically.',
+  undetermined: 'Turn on message capture to have incoming SIM messages appear here.',
+  denied: 'Message capture is turned off, so incoming SIM messages cannot arrive.',
+  blocked: 'Android will not ask again. Turn message capture on in system settings.',
+};
+
 export default function NotificationCenter({
   visible,
   onClose,
   onOpenNotification,
   onEditSms,
   onIgnoreSms,
+  smsCapture,
+  onEnableSms,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -41,6 +66,10 @@ export default function NotificationCenter({
   onEditSms?: (smsId: string) => void;
   /** SMS only: dismiss this message without saving anything. */
   onIgnoreSms?: (smsId: string) => void;
+  /** State of SIM capture, so an empty Bell can explain itself. */
+  smsCapture?: SmsCaptureInfo | null;
+  /** Turn capture on from here (explain, then request). */
+  onEnableSms?: () => void;
 }) {
   const notifications = useNotificationStore((s) => s.notifications);
   const unread = useNotificationStore((s) => s.notificationCount);
@@ -153,6 +182,31 @@ export default function NotificationCenter({
               )}
             />
           )}
+
+          {smsCapture && smsCapture.status !== 'granted' ? (
+            <Pressable
+              onPress={onEnableSms}
+              disabled={smsCapture.status === 'unsupported'}
+              style={({ pressed }) => [
+                styles.captureRow,
+                smsCapture.status === 'unsupported' && styles.captureRowMuted,
+                pressed && { opacity: 0.7 },
+              ]}>
+              <Text style={styles.captureIcon}>💬</Text>
+              <View style={styles.captureBody}>
+                <Text style={styles.captureText}>{CAPTURE_COPY[smsCapture.status]}</Text>
+                {smsCapture.pending > 0 ? (
+                  <Text style={styles.capturePending}>
+                    {smsCapture.pending} message{smsCapture.pending === 1 ? '' : 's'} waiting to be
+                    reviewed
+                  </Text>
+                ) : null}
+              </View>
+              {smsCapture.status !== 'unsupported' ? (
+                <Text style={styles.captureAction}>Turn on</Text>
+              ) : null}
+            </Pressable>
+          ) : null}
         </View>
       </View>
     </Modal>
@@ -269,6 +323,29 @@ const notificationStyles = (c: BirbalTheme) =>
       backgroundColor: c.danger,
       marginLeft: spacing.xs,
     },
+    captureRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      marginTop: spacing.sm,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.md,
+      borderRadius: radii.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: c.border,
+      backgroundColor: c.surfaceVariant,
+    },
+    captureRowMuted: { opacity: 0.75 },
+    captureIcon: { fontSize: 17 },
+    captureBody: { flex: 1 },
+    captureText: { fontSize: 12, color: c.textSecondary, lineHeight: 17 },
+    capturePending: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: c.textSecondary,
+      marginTop: 3,
+    },
+    captureAction: { fontSize: 12, fontWeight: '800', color: c.accent },
     emptyState: { alignItems: 'center', paddingVertical: 44 },
     emptyIcon: { fontSize: 40, marginBottom: spacing.md },
     emptyTitle: {

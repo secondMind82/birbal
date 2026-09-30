@@ -15,6 +15,15 @@ function requireUserId(userId?: string): string {
   return userId;
 }
 
+// Offline rows need an id before the server has assigned one. Mirrors the SMS
+// flow's Crypto.randomUUID() suffix so the two local-only id shapes stay
+// recognisable in a database dump.
+function localIdSuffix(): string {
+  return globalThis.crypto?.randomUUID
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function asExpense(timeline: Timeline): Expense {
   if (timeline.expenseAmountPaisa == null) {
     throw new Error('Timeline entry is not an expense');
@@ -53,12 +62,17 @@ export async function setReceivableStatus(
   return timelinesRepository.setReceivableStatus(uid, timelineId, status);
 }
 
-// Cache-first: feetches local instantly and lets the existing background sync
+// Cache-first: fetches local instantly and lets the existing background sync
 // refresh timeline rows (replaceAll preserves the local expense columns).
+// Only the debit direction belongs here: a credit is money coming back, so
+// counting it as an expense would double-count it against the same rupee. NULL
+// money_type predates the direction column and means debit.
 export async function getExpenses(userId?: string): Promise<Expense[]> {
   const uid = requireUserId(userId);
   const all = await timelinesService.getTimelines(uid);
-  return all.filter((t) => t.expenseAmountPaisa != null).map(asExpense);
+  return all
+    .filter((t) => t.expenseAmountPaisa != null && (t.moneyType == null || t.moneyType === 'expense'))
+    .map(asExpense);
 }
 
 export interface CreateExpenseInput {
@@ -72,24 +86,59 @@ export interface CreateExpenseInput {
 // Creates ONE timeline record server-first (existing contract), then stamps the
 // expense attribution locally on that same row. The entry is a normal Timeline
 // entry too, so it shows up in the Timeline feed and syncs like any other event.
+//
+// Offline the server call cannot happen, so the row is written to SQLite instead
+// and marked source='MANUAL'. That marker is what makes replaceAll hold the row
+// back on later refreshes instead of deleting an expense the user just entered.
+// This is the same local-first fallback the SMS save already uses, so there is
+// still only one expenses table and one Timeline repository.
 export async function createExpense(
   userId: string | undefined,
   input: CreateExpenseInput,
 ): Promise<Expense> {
   const uid = requireUserId(userId);
   const category = isExpenseCategory(input.category) ? input.category : 'Other';
-  const timeline = await timelinesService.createTimeline(
-    uid,
-    {
-      title: input.title.trim() || input.description.trim() || 'Expense',
-      description: input.description.trim(),
+  const title = input.title.trim() || input.description.trim() || 'Expense';
+  const description = input.description.trim();
+
+  try {
+    const timeline = await timelinesService.createTimeline(
+      uid,
+      {
+        title,
+        description,
+        eventDate: input.eventDate,
+        entityIds: [],
+        showOnCalendar: false,
+      },
+      { amountPaise: input.amountPaise, category } satisfies ExpenseMeta,
+    );
+    return asExpense(timeline);
+  } catch {
+    // Offline (or the server is down): keep the entry on-device rather than
+    // losing it. The row is a normal timeline, so it appears in the Timeline too.
+    const now = new Date().toISOString();
+    const id = `tl-manual-${localIdSuffix()}`;
+    await timelinesRepository.create(uid, {
+      id,
+      title,
+      description,
       eventDate: input.eventDate,
-      entityIds: [],
       showOnCalendar: false,
-    },
-    { amountPaise: input.amountPaise, category } satisfies ExpenseMeta,
-  );
-  return asExpense(timeline);
+      createdAt: now,
+      updatedAt: now,
+      expenseAmountPaisa: input.amountPaise,
+      expenseCategory: category,
+      moneyType: 'expense',
+      source: 'MANUAL',
+    });
+
+    const stored = await timelinesRepository.getById(uid, id);
+    if (!stored) {
+      throw new Error('Failed to save the expense');
+    }
+    return asExpense(stored);
+  }
 }
 
 // Deleting an expense reuses the existing local-first timeline delete (SQLite
