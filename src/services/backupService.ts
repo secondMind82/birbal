@@ -161,6 +161,30 @@ export async function buildBackup(
   const db = await getDb();
   const data = await readSnapshot(db, uid);
 
+  // TEMP DEBUG: Log timeline money rows
+  try {
+    const timelines = Array.isArray(data.timelines) ? data.timelines : [];
+    const moneyRows = timelines.filter((t: any) => 
+      t.expense_amount_paise !== null && t.expense_amount_paise !== undefined
+    );
+    console.log('[BACKUP DEBUG] buildBackup - uid:', uid);
+    console.log('[BACKUP DEBUG] timelines total:', timelines.length);
+    console.log('[BACKUP DEBUG] money-related timelines:', moneyRows.length);
+    moneyRows.forEach((t: any, i: number) => {
+      console.log(`[BACKUP DEBUG] money[${i}]:`, {
+        id: t.id,
+        amt: t.expense_amount_paise,
+        money_type: t.money_type,
+        receivable_status: t.receivable_status,
+        expense_category: t.expense_category,
+        source: t.source,
+        source_notification_id: t.source_notification_id,
+      });
+    });
+  } catch (e) {
+    console.error('[BACKUP DEBUG] logging failed:', e);
+  }
+
   const validation = validateBackupRows(data);
   if (!validation.ok) {
     throw new BackupError('invalid', `Local data could not be prepared: ${validation.error}`);

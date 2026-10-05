@@ -351,7 +351,7 @@ export default function SettingsScreen() {
           <Text style={styles.prefDesc}>
             Back up everything on this device to your Birbal account, then restore it on any other device
             signed in to the same account.
-            {'\n'}Notes, diary entries, people, timelines, events, expenses, reminders and read state are
+            {'\n'}Notes, diary entries, people, timelines, events, expenses, credits, debits, SMS messages, reminders and read state are
             included. Your password and session are never part of a backup.
           </Text>
 
@@ -395,7 +395,7 @@ export default function SettingsScreen() {
                 }`}
                 {lastBackup.recordCounts && Object.keys(lastBackup.recordCounts).length > 0
                   ? `\n${Object.entries(lastBackup.recordCounts)
-                      .filter(([key]) => !['total', 'contacts', 'timelineEntityLinks', 'notifications'].includes(key))
+                      .filter(([key]) => !['total', 'contacts', 'timelineEntityLinks', 'notifications', 'smsMessages', 'sms'].includes(key))
                       .map(([key, count]) => `${count} ${key.replace(/_/g, ' ')}`)
                       .join(' · ')}`
                   : ''}

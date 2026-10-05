@@ -27,9 +27,6 @@
 // Deliberately EXCLUDED:
 //   app_meta          – device + schema bookkeeping, not user data.
 //   backup_snapshots  – local safety net created by the restore writer itself.
-//   sms_messages      – private, per-device message bodies. The user never asked
-//                       for SMS text to leave the phone, and a restored inbox of
-//                       someone else's messages would be actively harmful.
 
 export type ColumnType = 'text' | 'number' | 'boolean' | 'any';
 
@@ -144,6 +141,28 @@ export const BACKUP_TABLES: readonly TableSpec[] = [
       'created_at',
     ],
     columnTypes: { title: 'text', read: 'boolean' },
+  },
+  {
+    key: 'sms_messages',
+    table: 'sms_messages',
+    order: 7,
+    userScoped: true,
+    countsAs: ['sms_messages', 'smsMessages', 'sms'],
+    columns: [
+      'id',
+      'user_id',
+      'sender',
+      'body',
+      'received_at',
+      'status',
+      'is_otp',
+      'notification_id',
+      'timeline_id',
+      'processed_at',
+      'created_at',
+    ],
+    columnTypes: { sender: 'text', body: 'text', status: 'text', is_otp: 'boolean' },
+    optionalColumns: ['notification_id', 'timeline_id', 'processed_at'],
   },
 ] as const;
 

@@ -66,12 +66,12 @@ export default function MoneyPanel({ money }: { money: MoneyPresentation }) {
 const makeStyles = (t: BirbalTheme) =>
   ({
     panel: {
-      marginTop: spacing.md,
+      marginTop: spacing.sm,
       borderRadius: radii.md,
       borderWidth: 1,
       backgroundColor: t.surface,
       paddingHorizontal: spacing.md,
-      paddingVertical: spacing.md,
+      paddingVertical: spacing.sm,
     },
     topRow: {
       flexDirection: 'row',
@@ -100,14 +100,14 @@ const makeStyles = (t: BirbalTheme) =>
     badgeText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.3 },
     amount: {
       marginTop: spacing.xs,
-      fontSize: 26,
+      fontSize: 22,
       fontWeight: '800',
       letterSpacing: -0.5,
       color: t.text,
     },
     category: {
-      marginTop: 2,
-      fontSize: 11,
+      marginTop: 1,
+      fontSize: 10,
       fontWeight: '600',
       color: t.textSecondary,
     },

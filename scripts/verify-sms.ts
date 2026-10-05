@@ -190,9 +190,9 @@ test('entity lookup returns nothing for an unknown person', () => {
 
 // ─── Structural guarantees ──────────────────────────────────────────────────
 
-test('raw message bodies are never part of a backup', async () => {
+test('SMS messages participate in backup and restore', async () => {
   const keys = BACKUP_TABLES.map((s) => s.key);
-  assert.ok(!keys.includes('sms_messages'), 'the SMS inbox must stay off the cloud');
+  assert.ok(keys.includes('sms_messages'), 'SMS messages must participate in backup & restore');
 });
 
 test('the sms table and the provenance columns exist in the schema', async () => {

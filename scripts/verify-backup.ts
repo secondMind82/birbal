@@ -155,6 +155,21 @@ function sampleRows(): BackupRows {
         created_at: '2026-02-01T00:00:00.000Z',
       },
     ],
+    sms_messages: [
+      {
+        id: 'sms1',
+        user_id: USER,
+        sender: 'HDFC',
+        body: 'Debit of Rs 500.00 on card xxxx done at Store',
+        received_at: '2026-01-06T10:00:00.000Z',
+        status: 'PENDING',
+        is_otp: 0,
+        notification_id: null,
+        timeline_id: null,
+        processed_at: null,
+        created_at: '2026-01-06T10:00:00.000Z',
+      },
+    ],
   };
 }
 
@@ -291,7 +306,7 @@ test('record counts derive events and expenses from timelines', () => {
   assert.equal(counts.expenses, 1);
   assert.equal(counts.notes, 1);
   assert.equal(counts.diary_entries, 1);
-  assert.equal(describeCounts(counts), '2 timelines · 1 event · 1 expense · 1 note · 1 diary');
+  assert.equal(describeCounts(counts), '2 timelines · 1 event · 1 expense · 1 note · 1 diary · 1 entity · 1 notification · 1 SMS message');
 });
 
 test('total counts physical rows and never double-counts derived events/expenses', () => {
@@ -304,7 +319,8 @@ test('total counts physical rows and never double-counts derived events/expenses
     (rows.timeline_entities?.length ?? 0) +
     (rows.notes?.length ?? 0) +
     (rows.diary_entries?.length ?? 0) +
-    (rows.notifications?.length ?? 0);
+    (rows.notifications?.length ?? 0) +
+    (rows.sms_messages?.length ?? 0);
 
   assert.equal(counts.total, physical, 'total must equal the number of rows written to SQLite');
   // events + expenses are views of the same timeline rows, so adding them in
@@ -324,13 +340,13 @@ test('internal count keys are hidden from user-facing summaries', () => {
 test('accepts a well-formed snapshot', () => {
   const result = validateBackupRows(sampleRows());
   assert.ok(result.ok, result.error);
-  assert.equal(result.totalRows, 7); // 1 entity + 2 timelines + 1 link + note + diary + notification
+  assert.equal(result.totalRows, 8); // 1 entity + 2 timelines + 1 link + note + diary + notification + sms
 });
 
 test('ignores unknown tables instead of failing (forward compatibility)', () => {
   const result = validateBackupRows({ ...sampleRows(), future_table: [{ x: 1 }] });
   assert.ok(result.ok, result.error);
-  assert.equal(result.totalRows, 7);
+  assert.equal(result.totalRows, 8);
 });
 
 test('accepts an empty backup only when the caller opts in (rollback to a new device)', () => {
@@ -387,6 +403,7 @@ test('restore writes every table and preserves ids, timestamps and money fields'
     notes: 1,
     diary_entries: 1,
     notifications: 1,
+    sms_messages: 1,
   });
 
   const after = visibleTo(USER);
@@ -537,7 +554,9 @@ test('restore never touches another account data and re-asserts ownership', asyn
   const hostile = structuredClone(sampleRows()) as BackupRows;
   for (const spec of BACKUP_TABLES) {
     if (!spec.userScoped) continue; // join rows carry no user_id by design
-    for (const row of hostile[spec.key] as Record<string, unknown>[]) row.user_id = OTHER_USER;
+    const rows = hostile[spec.key] as Record<string, unknown>[] | undefined;
+    if (!Array.isArray(rows)) continue;
+    for (const row of rows) row.user_id = OTHER_USER;
   }
 
   await runRestoreTransaction(db, USER, hostile);

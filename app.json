@@ -37,7 +37,8 @@
         }
       ],
       "expo-sqlite",
-      "expo-notifications"
+      "expo-notifications",
+      "expo-contacts"
     ],
     "extra": {
       "eas": {

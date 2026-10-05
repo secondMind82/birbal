@@ -23,6 +23,7 @@ import * as diaryService from '../services/diaryService';
 import * as entitiesService from '../services/entitiesService';
 import * as notesService from '../services/notesService';
 import * as timelinesService from '../services/timelinesService';
+import * as Contacts from 'expo-contacts';
 import {
   classifyEntityType,
   extractEventDate,
@@ -74,6 +75,8 @@ export default function DashboardScreen() {
 
   const [postText, setPostText] = useState('');
   const inputRef = useRef<TextInput>(null);
+  const [contacts, setContacts] = useState<any[]>([]);
+  const [contactsError, setContactsError] = useState<string | null>(null);
 
   const userName = user?.fullName ?? user?.email ?? '';
   const firstName = userName.split(' ')[0];
@@ -177,7 +180,7 @@ export default function DashboardScreen() {
   const suggestionMode =
     placeQuery !== null ? 'place' : mentionQuery !== null ? 'person' : null;
 
-  const suggestions =
+  const filteredEntities =
     suggestionMode === 'place'
       ? entities
           .filter((e) => e.type === 'PLACE' && e.name.toLowerCase().includes(placeQuery ?? ''))
@@ -187,6 +190,46 @@ export default function DashboardScreen() {
             .filter((e) => e.name.toLowerCase().includes(mentionQuery ?? ''))
             .slice(0, 5)
         : [];
+
+  const filteredContacts = React.useMemo(() => {
+    if (suggestionMode !== 'person' || mentionQuery === null) return [];
+    const q = mentionQuery;
+    return contacts
+      .filter((c) => {
+        const name = (c as any).name ?? (c as any).displayName ?? '';
+        const phone = ((c as any).phoneNumbers ?? []).map((p: any) => p.number ?? '').join(' ');
+        return name.toLowerCase().includes(q) || phone.includes(q);
+      })
+      .slice(0, 5);
+  }, [contacts, mentionQuery, suggestionMode]);
+
+  const suggestions = [...filteredEntities, ...filteredContacts];
+
+  React.useEffect(() => {
+    const loadContacts = async () => {
+      if (suggestionMode !== 'person' || mentionQuery === null) {
+        setContactsError(null);
+        return;
+      }
+      try {
+        const { status } = await Contacts.requestPermissionsAsync();
+        if (status === 'granted') {
+          const { data } = await Contacts.getContactsAsync({
+            fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers, Contacts.Fields.Image],
+          });
+          setContacts(data);
+          setContactsError(null);
+        } else {
+          setContacts([]);
+          setContactsError('Contacts permission denied');
+        }
+      } catch (e) {
+        setContacts([]);
+        setContactsError(null);
+      }
+    };
+    void loadContacts();
+  }, [suggestionMode, mentionQuery]);
 
   const applySuggestion = (entity: Entity) => {
     if (suggestionMode === 'place') {
@@ -354,7 +397,7 @@ export default function DashboardScreen() {
             {suggestions.length > 0 && (
               <View style={styles.suggestions}>
                 <ScrollView style={{ maxHeight: 160 }} keyboardShouldPersistTaps="handled" nestedScrollEnabled>
-                  {suggestions.map((e) => (
+                  {filteredEntities.map((e) => (
                     <Pressable
                       key={e.id}
                       style={styles.suggestionRow}
@@ -366,6 +409,27 @@ export default function DashboardScreen() {
                       <Text style={styles.suggestionType}>{e.type}</Text>
                     </Pressable>
                   ))}
+                  {filteredContacts.length > 0 && filteredEntities.length > 0 && (
+                    <View style={{ height: 1, backgroundColor: t.borderFaint, marginVertical: 4 }} />
+                  )}
+                  {filteredContacts.map((c, idx) => {
+                    const name = (c as any).name ?? (c as any).displayName ?? 'Unknown';
+                    const phone = (c as any).phoneNumbers?.[0]?.number ?? '';
+                    const key = c.id ?? `${name}-${idx}`;
+                    return (
+                      <Pressable
+                        key={key}
+                        style={styles.suggestionRow}
+                        onPress={() => {
+                          const contactText = phone ? `${name} ${phone}` : name;
+                          setPostText((prev) => prev.replace(/@([^\s]*)$/, `${contactText} `));
+                          inputRef.current?.focus();
+                        }}>
+                        <Text style={styles.suggestionName}>{name}</Text>
+                        {phone ? <Text style={styles.suggestionType}>{phone}</Text> : null}
+                      </Pressable>
+                    );
+                  })}
                 </ScrollView>
               </View>
             )}
