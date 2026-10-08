@@ -25,4 +25,5 @@ export type RootStackParamList = {
   PreviewTimeline: { timeline: Timeline };
   PreviewDiary: { entry: DiaryEntry };
   SmsReview: { smsId: string };
+  BirbalAssistant: undefined;
 };

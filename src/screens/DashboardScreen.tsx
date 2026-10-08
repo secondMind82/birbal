@@ -15,6 +15,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import AppShell from '../components/AppShell';
+import BirbalAssistantButton from '../components/BirbalAssistantButton';
 import { getErrorMessage } from '../api/client';
 import { Card } from '../components/ui';
 import type { DiaryEntry, Entity, Timeline } from '../models/types';
@@ -23,7 +24,7 @@ import * as diaryService from '../services/diaryService';
 import * as entitiesService from '../services/entitiesService';
 import * as notesService from '../services/notesService';
 import * as timelinesService from '../services/timelinesService';
-import * as Contacts from 'expo-contacts';
+import * as Contacts from 'expo-contacts/legacy';
 import {
   classifyEntityType,
   extractEventDate,
@@ -194,30 +195,43 @@ export default function DashboardScreen() {
   const filteredContacts = React.useMemo(() => {
     if (suggestionMode !== 'person' || mentionQuery === null) return [];
     const q = mentionQuery;
-    return contacts
+    const res = contacts
       .filter((c) => {
-        const name = (c as any).name ?? (c as any).displayName ?? '';
-        const phone = ((c as any).phoneNumbers ?? []).map((p: any) => p.number ?? '').join(' ');
-        return name.toLowerCase().includes(q) || phone.includes(q);
+        const rawName = (c as any).name ?? (c as any).displayName ?? (c as any).firstName ?? (c as any).lastName ?? '';
+        const name = String(rawName || '').trim();
+        const phone = ((c as any).phoneNumbers ?? [])
+          .map((p: any) => p?.number ?? p?.digits ?? p?.phoneNumber ?? '')
+          .filter(Boolean)
+          .join(' ');
+        const qLower = String(q || '').toLowerCase();
+        return qLower === '' || name.toLowerCase().includes(qLower) || phone.includes(qLower);
       })
-      .slice(0, 5);
+      .slice(0, 20);
+    return res;
   }, [contacts, mentionQuery, suggestionMode]);
 
   const suggestions = [...filteredEntities, ...filteredContacts];
 
   React.useEffect(() => {
     const loadContacts = async () => {
-      if (suggestionMode !== 'person' || mentionQuery === null) {
+      if (suggestionMode !== 'person') {
         setContactsError(null);
         return;
       }
       try {
-        const { status } = await Contacts.requestPermissionsAsync();
-        if (status === 'granted') {
+        const { status: currentStatus } = await Contacts.getPermissionsAsync();
+        let finalStatus = currentStatus;
+        if (finalStatus !== 'granted') {
+          const { status: reqStatus } = await Contacts.requestPermissionsAsync();
+          finalStatus = reqStatus;
+        }
+        if (finalStatus === 'granted') {
           const { data } = await Contacts.getContactsAsync({
             fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers, Contacts.Fields.Image],
           });
-          setContacts(data);
+          if (data && data.length > 0) {
+          }
+          setContacts(data || []);
           setContactsError(null);
         } else {
           setContacts([]);
@@ -229,7 +243,7 @@ export default function DashboardScreen() {
       }
     };
     void loadContacts();
-  }, [suggestionMode, mentionQuery]);
+  }, [suggestionMode]);
 
   const applySuggestion = (entity: Entity) => {
     if (suggestionMode === 'place') {
@@ -413,17 +427,22 @@ export default function DashboardScreen() {
                     <View style={{ height: 1, backgroundColor: t.borderFaint, marginVertical: 4 }} />
                   )}
                   {filteredContacts.map((c, idx) => {
-                    const name = (c as any).name ?? (c as any).displayName ?? 'Unknown';
-                    const phone = (c as any).phoneNumbers?.[0]?.number ?? '';
-                    const key = c.id ?? `${name}-${idx}`;
+                    const rawName = (c as any).name ?? (c as any).displayName ?? (c as any).firstName ?? (c as any).lastName ?? 'Unknown';
+                    const name = String(rawName || 'Unknown');
+                    const phone = (c as any).phoneNumbers?.[0]?.number ?? (c as any).phoneNumbers?.[0]?.digits ?? '';
+                    const key = (c as any).id ?? `${name}-${idx}`;
                     return (
                       <Pressable
                         key={key}
                         style={styles.suggestionRow}
-                        onPress={() => {
-                          const contactText = phone ? `${name} ${phone}` : name;
-                          setPostText((prev) => prev.replace(/@([^\s]*)$/, `${contactText} `));
-                          inputRef.current?.focus();
+                        onPress={async () => {
+                          try {
+                            const userId = useAuthStore.getState().user?.id;
+                            const entity = await entitiesService.ensurePersonEntity(userId, name);
+                            navigation.navigate('PreviewEntity', { entity });
+                          } catch (e) {
+                            // ignore
+                          }
                         }}>
                         <Text style={styles.suggestionName}>{name}</Text>
                         {phone ? <Text style={styles.suggestionType}>{phone}</Text> : null}
@@ -498,6 +517,7 @@ export default function DashboardScreen() {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+      <BirbalAssistantButton onPress={() => navigation.navigate('BirbalAssistant')} />
     </AppShell>
   );
 }

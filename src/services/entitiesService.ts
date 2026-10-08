@@ -81,6 +81,30 @@ export async function updateEntity(
   return persistEntity(uid, updated);
 }
 
+export async function findEntityByName(
+  userId: string | undefined,
+  name: string,
+): Promise<Entity | null> {
+  const uid = requireUserId(userId);
+  return entitiesRepository.findByName(uid, name);
+}
+
+export async function ensurePersonEntity(
+  userId: string | undefined,
+  name: string,
+): Promise<Entity> {
+  const uid = requireUserId(userId);
+  const normalized = name.trim();
+  if (!normalized) {
+    throw new Error('Entity name is required');
+  }
+  const existing = await entitiesRepository.findByName(uid, normalized);
+  if (existing) {
+    return existing;
+  }
+  return createEntity(uid, { name: normalized, type: 'PERSON' });
+}
+
 export async function deleteEntity(
   userId: string | undefined,
   id: string,

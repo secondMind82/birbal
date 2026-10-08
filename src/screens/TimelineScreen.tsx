@@ -13,6 +13,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import AppShell from '../components/AppShell';
+import ConfirmDialog from '../components/ConfirmDialog';
 import MoneyPanel from '../components/MoneyPanel';
 import { getErrorMessage } from '../api/client';
 import { Card, EmptyState } from '../components/ui';
@@ -34,6 +35,8 @@ import type { BirbalTheme } from '../theme';
 type Nav = NativeStackNavigationProp<import('../navigation/types').RootStackParamList>;
 
 type MenuAnchor = { timeline: Timeline; top: number; right: number };
+
+type MarkAction = { timeline: Timeline; status: string };
 
 function formatStamp(event: Timeline): string {
   const d = new Date(event.eventDate);
@@ -64,6 +67,9 @@ export default function TimelineScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuAnchor | null>(null);
+  // Confirmation step for the Credit Pending actions: tapping Received/Ignore
+  // only stages the request; markReceivable runs after the user confirms.
+  const [pendingMark, setPendingMark] = useState<MarkAction | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -210,7 +216,7 @@ export default function TimelineScreen() {
             <TimelineCard
               event={item}
               onOpenMenu={setMenu}
-              onMark={(t, status) => markReceivable(t, status)}
+              onMark={(timeline, status) => setPendingMark({ timeline, status })}
             />
           )}
         />
@@ -229,6 +235,25 @@ export default function TimelineScreen() {
               </View>
             </Pressable>
           </Modal>
+        ) : null}
+        {pendingMark ? (
+          <ConfirmDialog
+            icon={pendingMark.status === 'ignored' ? '✕' : '✓'}
+            title={pendingMark.status === 'ignored' ? 'Ignore Credit?' : 'Receive Credit?'}
+            message={
+              pendingMark.status === 'ignored'
+                ? `Do you want to ignore this ${formatPaise(pendingMark.timeline.expenseAmountPaisa)} credit?`
+                : `Do you want to mark this ${formatPaise(pendingMark.timeline.expenseAmountPaisa)} credit as received?`
+            }
+            confirmLabel={pendingMark.status === 'ignored' ? 'Ignore' : 'Receive'}
+            tone={pendingMark.status === 'ignored' ? 'danger' : 'success'}
+            onCancel={() => setPendingMark(null)}
+            onConfirm={() => {
+              const { timeline, status } = pendingMark;
+              setPendingMark(null);
+              markReceivable(timeline, status);
+            }}
+          />
         ) : null}
         <Pressable style={styles.fab} onPress={() => navigation.navigate('AddEvent')}>
           <Text style={styles.fabIcon}>+</Text>

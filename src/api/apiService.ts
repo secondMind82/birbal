@@ -113,3 +113,19 @@ export const listBackups = (take = 20) =>
 
 export const deleteBackup = (id: string) =>
   client.delete<{ id: string; deleted: true }>(`backups/${id}`).then((r) => r.data);
+
+// AI Assistant (read-only chat). The app builds the context from its local
+// services and sends it along; the backend answers without writing anything.
+export interface AiChatTurn {
+  role: 'user' | 'assistant';
+  text: string;
+}
+
+export interface AiChatRequest {
+  message: string;
+  context?: Record<string, unknown>;
+  history?: AiChatTurn[];
+}
+
+export const aiChat = (request: AiChatRequest) =>
+  client.post<{ reply: string }>('ai/chat', request).then((r) => r.data);
