@@ -78,6 +78,10 @@ export function installExpoSqliteShim(): void {
  */
 export const nativeControls = {
   platform: 'android' as string,
+  /** Value Platform.Version reports; drives the Android-13+ exact-alarm prompt. */
+  platformVersion: 36 as number,
+  /** Every intent `Linking.sendIntent` was asked to launch, in order. */
+  linkingIntents: [] as string[],
   /** Result PermissionsAndroid.check() reports for RECEIVE_SMS. */
   smsGranted: false,
   /**
@@ -111,9 +115,17 @@ export const nativeControls = {
     string,
     { identifier: string; content: unknown; trigger: unknown }
   >(),
+  /**
+   * Every `setNotificationChannelAsync` options object, so a test can assert the
+   * channel is configured the supported way (e.g. no `sound` field that names a
+   * resource which does not exist — expo-notifications logs a warning for it).
+   */
+  notificationChannelOptions: [] as unknown[],
   /** Every alert the app raised, for asserting on copy and on nagging. */
   reset(): void {
     this.platform = 'android';
+    this.platformVersion = 36;
+    this.linkingIntents = [];
     this.smsGranted = false;
     this.smsInbox.length = 0;
     this.smsRequestResult = 'granted';
@@ -124,6 +136,7 @@ export const nativeControls = {
     this.secureStore = new Map();
     this.notificationsGranted = true;
     this.scheduledNotifications = new Map();
+    this.notificationChannelOptions = [];
     // The compiled stub reads this to decide whether requireNativeModule throws.
     (globalThis as { __birbalNativeControls?: unknown }).__birbalNativeControls = this;
   },
@@ -235,7 +248,10 @@ const STUBS: Record<string, unknown> = {
       canAskAgain: true,
     }),
     setNotificationHandler: () => {},
-    setNotificationChannelAsync: async () => null,
+    setNotificationChannelAsync: async (_channelId: string, options?: unknown) => {
+      nativeControls.notificationChannelOptions.push(options ?? null);
+      return null;
+    },
     getNotificationChannelsAsync: async () => [],
     AndroidImportance: { MIN: 1, LOW: 2, DEFAULT: 3, HIGH: 4, MAX: 5 },
     SchedulableTriggerInputTypes: {
@@ -284,12 +300,20 @@ const STUBS: Record<string, unknown> = {
     get Platform() {
       return {
         OS: nativeControls.platform,
+        Version: nativeControls.platformVersion,
         select: (o: Record<string, unknown>) => o[nativeControls.platform] ?? o.default,
       };
     },
     Alert: ALERT_STUB,
     PermissionsAndroid: PERMISSIONS_ANDROID_STUB,
-    Linking: { openSettings: async () => true, openURL: async () => true },
+    Linking: {
+      openSettings: async () => true,
+      openURL: async () => true,
+      sendIntent: async (action: string) => {
+        nativeControls.linkingIntents.push(action);
+        return true;
+      },
+    },
     AppState: { addEventListener: () => ({ remove: () => {} }) },
   },
   '@react-navigation/native': {

@@ -107,10 +107,29 @@ export function sanitizeName(raw: string): string {
     .replace(new RegExp(`[${PUNCT}]+$`), '');
 }
 
+// Parses a wall-clock time that carries an explicit am/pm marker. Minutes may be
+// colon/dot-joined or simply space-separated, because people often drop the colon
+// when typing quickly ("1 52 pm" means 1:52 PM, not hour 52). Impossible values
+// (hour outside 1..12, minute outside 0..59) return null so a stray number can
+// never overflow a Date — setHours(52, ...) used to roll the event two days
+// forward and display a bogus "4:00 AM".
+export function parseClockTime(
+  text: string,
+): { hour24: number; minute: number; raw: string } | null {
+  const m = text.match(/(\d{1,2})(?:[:.](\d{2})|\s+(\d{2}))?\s*(am|pm)\b/i);
+  if (!m) return null;
+  const hour12 = parseInt(m[1], 10);
+  const minute = parseInt(m[2] ?? m[3] ?? '0', 10);
+  if (hour12 < 1 || hour12 > 12) return null;
+  if (minute < 0 || minute > 59) return null;
+  const hour24 = (hour12 % 12) + (m[4].toLowerCase() === 'pm' ? 12 : 0);
+  return { hour24, minute, raw: m[0].trim() };
+}
+
 export function extractEventDate(text: string): Date {
   const base = new Date();
 
-  const timeMatch = text.match(/(\d{1,2})(:(\d{2}))?\s*(am|pm)/i);
+  const clock = parseClockTime(text);
   const numericMatch = text.match(/(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})/);
 
   let dateSet = false;
@@ -137,13 +156,8 @@ export function extractEventDate(text: string): Date {
     }
   }
 
-  if (dateSet && timeMatch) {
-    let hour = parseInt(timeMatch[1], 10);
-    const minute = timeMatch[3] ? parseInt(timeMatch[3], 10) : 0;
-    const amPm = timeMatch[4].toLowerCase();
-    if (amPm === 'pm' && hour < 12) hour += 12;
-    if (amPm === 'am' && hour === 12) hour = 0;
-    base.setHours(hour, minute, 0, 0);
+  if (dateSet && clock) {
+    base.setHours(clock.hour24, clock.minute, 0, 0);
   }
 
   return dateSet ? base : new Date();
@@ -181,19 +195,22 @@ export function parseActivity(text: string, person?: string): ParsedActivity {
     details.push({ emoji: '📅', label: 'Day', value: DAY_MAP[dayMatch[1].toLowerCase()] ?? dayMatch[1] });
   }
 
-  const timeMatch =
-    text.match(/\b(after|before)\s+(namaz\s*-?\s*e\s*-?\s*(?:isha|maghrib|fajr|zuhr|asr)|isha|maghrib|fajr|zuhr|asr)\b/i) ||
-    text.match(/(\d{1,2})(:(\d{2}))?\s*(am|pm)/i);
-  if (timeMatch) {
-    const raw = timeMatch[0].trim();
-    if (/namaz|isha|maghrib|fajr|zuhr|asr/i.test(raw)) {
-      details.push({ emoji: '🕌', label: 'Time', value: raw.replace(/\s+/g, ' ') });
-    } else {
-      const hrs = parseInt(timeMatch[1], 10);
-      const ampm = (timeMatch[4] ?? (hrs >= 12 ? 'pm' : 'am')).toLowerCase();
-      const h12 = hrs % 12 === 0 ? 12 : hrs % 12;
-      const mm = timeMatch[3] ? `:${timeMatch[3]}` : ':00';
-      details.push({ emoji: '⏰', label: 'Time', value: `${h12}${mm} ${ampm.toUpperCase()}` });
+  const namazMatch = text.match(
+    /\b(after|before)\s+(namaz\s*-?\s*e\s*-?\s*(?:isha|maghrib|fajr|zuhr|asr)|isha|maghrib|fajr|zuhr|asr)\b/i,
+  );
+  if (namazMatch) {
+    details.push({
+      emoji: '🕌',
+      label: 'Time',
+      value: namazMatch[0].trim().replace(/\s+/g, ' '),
+    });
+  } else {
+    const clock = parseClockTime(text);
+    if (clock) {
+      const h12 = clock.hour24 % 12 === 0 ? 12 : clock.hour24 % 12;
+      const ampm = clock.hour24 >= 12 ? 'PM' : 'AM';
+      const mm = `:${String(clock.minute).padStart(2, '0')}`;
+      details.push({ emoji: '⏰', label: 'Time', value: `${h12}${mm} ${ampm}` });
     }
   }
 

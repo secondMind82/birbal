@@ -18,6 +18,10 @@ import { ANDROID_CHANNEL_ID, ensureNotificationChannel } from './systemNotificat
 
 const ID_PREFIX = 'birbal-ev-';
 
+// A reminder the OS still reports as pending this long after its instant has
+// demonstrably been deferred (not just the normal jitter of an inexact alarm).
+const OVERDUE_GRACE_MS = 60_000;
+
 // Foreground presentation: notifications must still surface while the app is open.
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -51,13 +55,20 @@ export async function ensureNotificationPermission(): Promise<boolean> {
 }
 
 // Android 13+ (API 33+) denies SCHEDULE_EXACT_ALARM by default, so expo's DATE
-// trigger falls back to an inexact alarm. Under Doze that alarm is deferred to
-// the next maintenance window — frequently not until the device or the app next
-// wakes, which the user experiences as "the reminder only appears after I open
-// the app". JS has no way to read alarmManager.canScheduleExactAlarms(), so we
-// send the user to the system "Alarms & reminders" screen once and remember it.
-// Only ever called on a user-initiated schedule (not the login/app-start resync)
-// so the settings screen never opens on its own.
+// trigger falls back to an inexact alarm (`setAndAllowWhileIdle`). Under Doze
+// that alarm is deferred to the next maintenance window — frequently not until
+// the device or the app next wakes, which the user experiences as "the reminder
+// only appears after I open the app". JS has no way to read
+// alarmManager.canScheduleExactAlarms(), so we send the user to the system
+// "Alarms & reminders" screen once and remember it. Only ever called on a
+// user-initiated schedule (not the login/app-start resync) so the settings screen
+// never opens on its own.
+//
+// The "already offered" mark is deliberately NOT permanent. A single dismissed
+// screen — or one never seen because an earlier build had already set the mark —
+// used to disable exact alarms silently forever. `resyncEventReminders` re-arms
+// the prompt whenever the OS reports a reminder that is past its instant but
+// still undelivered, which is the signature of a deferred inexact alarm.
 const EXACT_ALARM_PROMPT_KEY = 'birbal_exact_alarm_prompted';
 
 async function ensureExactAlarmPermission(): Promise<void> {
@@ -66,10 +77,14 @@ async function ensureExactAlarmPermission(): Promise<void> {
   if (!Number.isFinite(apiLevel) || apiLevel < 33) return;
   try {
     if (await SecureStore.getItemAsync(EXACT_ALARM_PROMPT_KEY)) return;
+    // Open first, mark only after: a failure here leaves the prompt armed for
+    // the next user-initiated schedule instead of consuming the one attempt.
+    try {
+      await Linking.sendIntent('android.settings.REQUEST_SCHEDULE_EXACT_ALARM');
+    } catch {
+      await Linking.openSettings().catch(() => {});
+    }
     await SecureStore.setItemAsync(EXACT_ALARM_PROMPT_KEY, '1');
-    await Linking.sendIntent('android.settings.REQUEST_SCHEDULE_EXACT_ALARM').catch(
-      () => Linking.openSettings().catch(() => {}),
-    );
   } catch {
     // Best-effort: the reminder still parks (inexactly) if this is unavailable.
   }
@@ -160,7 +175,6 @@ export async function scheduleEventReminder(
     content: {
       title,
       body,
-      sound: 'default',
       data: {
         timelineId: timeline.id,
         entityId: firstEntityId(timeline),
@@ -191,7 +205,9 @@ export async function cancelEventReminder(timelineId: string): Promise<void> {
 // whenever it still matches a live, unchanged event. Only reminders whose event
 // was deleted or whose `eventDate` changed are cancelled; every event left without
 // a pending reminder is (re)parked. Idempotent across restarts (no duplicates) and
-// self-heals after logout/login, permission changes or reboots.
+// self-heals after logout/login, permission changes or reboots. It also re-arms
+// the exact-alarm prompt (and logs a fixed diagnostic) when it finds a reminder
+// that is overdue but still undelivered — the signature of a Doze-deferred alarm.
 export async function resyncEventReminders(userId: string): Promise<void> {
   await ensureBaselineSetup();
   if (!(await hasPermission())) return;
@@ -202,15 +218,31 @@ export async function resyncEventReminders(userId: string): Promise<void> {
   // Keep every still-pending reminder that is still valid; cancel the rest.
   const pending = await Notifications.getAllScheduledNotificationsAsync();
   const parked = new Set<string>();
+  let overduePending = 0;
   for (const request of pending) {
     const identifier = request.identifier ?? '';
     if (!identifier.startsWith(ID_PREFIX)) continue;
     const timelineId = identifier.slice(ID_PREFIX.length);
-    if (reminderIsCurrent(byId.get(timelineId), scheduledTriggerTime(request.trigger))) {
+    const scheduledAt = scheduledTriggerTime(request.trigger);
+    if (reminderIsCurrent(byId.get(timelineId), scheduledAt)) {
       parked.add(timelineId);
+      // Still pending past its instant = the OS has not delivered it yet, the
+      // signature of an inexact alarm deferred by Doze. Re-arm the exact-alarm
+      // prompt so the next user-initiated schedule offers the fix.
+      if (scheduledAt !== null && scheduledAt <= Date.now() - OVERDUE_GRACE_MS) {
+        overduePending += 1;
+      }
     } else {
       await Notifications.cancelScheduledNotificationAsync(identifier).catch(() => {});
     }
+  }
+  if (overduePending > 0) {
+    await SecureStore.deleteItemAsync(EXACT_ALARM_PROMPT_KEY).catch(() => {});
+    console.warn(
+      `[birbal] ${overduePending} event reminder(s) overdue but still undelivered; ` +
+        'Alarms & reminders (SCHEDULE_EXACT_ALARM) may be disabled. ' +
+        'Re-armed the exact-alarm prompt for the next scheduled reminder.',
+    );
   }
 
   // (Re)park only the events that have no valid pending reminder.

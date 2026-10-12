@@ -55,7 +55,8 @@
     "verify:reminders": "tsc -p tsconfig.scripts.json && BIRBAL_ROOT=\"$PWD\" node --test .verify-build/birbal/scripts/verify-reminders.js",
     "verify:sms:pipe": "tsc -p tsconfig.scripts.json && BIRBAL_ROOT=\"$PWD\" node --test .verify-build/birbal/scripts/verify-sms-pipeline.js",
     "verify:money": "tsc -p tsconfig.scripts.json && BIRBAL_ROOT=\"$PWD\" node --test .verify-build/birbal/scripts/verify-money.js .verify-build/birbal/scripts/verify-expense-flow.js .verify-build/birbal/scripts/verify-sms-permission.js .verify-build/birbal/scripts/verify-timeline-money.js",
-    "verify": "npm run verify:sms && npm run verify:sms:pipe && npm run verify:bell && npm run verify:reminders && npm run verify:money && npm run verify:backup"
+    "verify:dates": "tsc -p tsconfig.scripts.json && BIRBAL_ROOT=\"$PWD\" node --test .verify-build/birbal/scripts/verify-dates.js",
+    "verify": "npm run verify:sms && npm run verify:sms:pipe && npm run verify:bell && npm run verify:reminders && npm run verify:dates && npm run verify:money && npm run verify:backup"
   },
   "private": true
 }

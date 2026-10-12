@@ -57,7 +57,11 @@ export async function ensureNotificationChannel(): Promise<void> {
     importance: Notifications.AndroidImportance.HIGH,
     vibrationPattern: [0, 250, 250, 250],
     lightColor: '#7C3AED',
-    sound: 'default',
+    // No `sound`: a channel sound is a bundled raw-resource filename, and
+    // expo-notifications logs "Custom sound 'default' not found" when the
+    // `sound` option does not exist as a resource. Omitting it makes Android
+    // fall back to the system default notification sound (Settings.System
+    // .DEFAULT_NOTIFICATION_URI) — the same audible behaviour, without the log.
   });
   channelReady = true;
 }
@@ -104,7 +108,6 @@ export async function presentSystemNotifications(
           content: {
             title: n.title,
             body: n.message ?? undefined,
-            sound: 'default',
             // Carried through the tap so the listener can resolve exactly this row.
             data: {
               notificationId: n.id,

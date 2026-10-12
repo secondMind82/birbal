@@ -62,6 +62,33 @@ function parkedValue(timelineId: string): number | undefined {
   return (parked(timelineId)?.trigger as { value?: number } | undefined)?.value;
 }
 
+// Must be the first test to run: `ensureNotificationChannel` is memoized by a
+// module-level `channelReady` flag, so the channel options are only captured on
+// the first setup of the process. Device log read:
+//   expo-notifications: Custom sound 'default' not found in native app...
+// expo-notifications treats a channel's `sound` as a bundled raw-resource name,
+// so 'default' logs that warning (and resolves to the system default anyway). The
+// supported way to get the system default is to omit `sound` entirely.
+test('the Android channel omits a sound name that matches no bundled resource', async () => {
+  const { harness, scheduler } = await setup();
+  try {
+    await scheduler.resyncEventReminders(USER); // triggers ensureNotificationChannel
+    assert.ok(
+      nativeControls.notificationChannelOptions.length > 0,
+      'the notification channel setup ran',
+    );
+    for (const options of nativeControls.notificationChannelOptions) {
+      assert.equal(
+        (options as { sound?: unknown } | null)?.sound,
+        undefined,
+        "a channel must not name a 'sound' that is not a bundled resource (logs a warning)",
+      );
+    }
+  } finally {
+    await harness.cleanup();
+  }
+});
+
 test('a past-due reminder that has not fired survives an app-restart resync', async () => {
   const { harness, timelines, scheduler } = await setup();
   try {
@@ -216,6 +243,125 @@ test('clearing reminders never touches mirrored system notifications', async () 
       'a mirrored shade notification is not an event reminder and must survive logout clearing',
     );
     assert.equal(parked('tl-x'), undefined, 'event reminders are cleared on logout');
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+// Android 13+ with SCHEDULE_EXACT_ALARM denied makes expo park an inexact alarm,
+// which Doze defers. The app has no JS read of `canScheduleExactAlarms()`, so it
+// once sent the user to "Alarms & reminders" a single time and never again — and
+// a single missed/dismissed screen silently left every reminder late forever.
+// The remaining tests pin the corrected contract: the prompt is offered again
+// whenever a reminder proves to have been deferred, and it is only ever raised
+// by a user-initiated schedule.
+const EXACT_ALARM_KEY = 'birbal_exact_alarm_prompted';
+const EXACT_ALARM_INTENT = 'android.settings.REQUEST_SCHEDULE_EXACT_ALARM';
+
+test('a user-initiated schedule offers the exact-alarm screen once, then stays quiet', async () => {
+  const { harness, timelines, scheduler } = await setup();
+  try {
+    const at = atMinutes(60);
+    await timelines.create(USER, {
+      id: 'tl-exact',
+      title: 'Exact',
+      description: 'Exact',
+      eventDate: iso(at),
+      showOnCalendar: true,
+    });
+    const timeline = (await timelines.getById(USER, 'tl-exact'))!;
+
+    await scheduler.scheduleEventReminder(timeline, true);
+
+    assert.deepEqual(
+      nativeControls.linkingIntents,
+      [EXACT_ALARM_INTENT],
+      'a user-initiated schedule points the user at the exact-alarm screen',
+    );
+    assert.equal(nativeControls.secureStore.get(EXACT_ALARM_KEY), '1', 'the offer is remembered');
+
+    await scheduler.scheduleEventReminder(timeline, true);
+    assert.equal(
+      nativeControls.linkingIntents.length,
+      1,
+      'the settings screen is not reopened while the offer stands',
+    );
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test('the app-start resync never opens the exact-alarm settings on its own', async () => {
+  const { harness, timelines, scheduler } = await setup();
+  try {
+    await timelines.create(USER, {
+      id: 'tl-quiet',
+      title: 'Quiet',
+      description: 'Quiet',
+      eventDate: iso(atMinutes(60)),
+      showOnCalendar: true,
+    });
+
+    await scheduler.resyncEventReminders(USER);
+
+    assert.deepEqual(
+      nativeControls.linkingIntents,
+      [],
+      'resync must park reminders silently and never launch a settings screen',
+    );
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test('a deferred past-due reminder re-arms the exact-alarm prompt', async () => {
+  const { harness, timelines, scheduler } = await setup();
+  try {
+    const at = atMinutes(-5);
+    await timelines.create(USER, {
+      id: 'tl-deferred',
+      title: 'Deferred',
+      description: 'Deferred',
+      eventDate: iso(at),
+      showOnCalendar: true,
+    });
+    park('tl-deferred', at, { title: 'Deferred' });
+    nativeControls.secureStore.set(EXACT_ALARM_KEY, '1');
+
+    await scheduler.resyncEventReminders(USER);
+
+    assert.equal(
+      nativeControls.secureStore.get(EXACT_ALARM_KEY),
+      undefined,
+      'a reminder that is overdue but still undelivered re-arms the prompt for the next schedule',
+    );
+    assert.ok(parked('tl-deferred'), 'the late-but-pending reminder itself is still preserved');
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test('an on-time future reminder does not re-arm the exact-alarm prompt', async () => {
+  const { harness, timelines, scheduler } = await setup();
+  try {
+    const at = atMinutes(60);
+    await timelines.create(USER, {
+      id: 'tl-ontime',
+      title: 'On time',
+      description: 'On time',
+      eventDate: iso(at),
+      showOnCalendar: true,
+    });
+    park('tl-ontime', at, { title: 'On time' });
+    nativeControls.secureStore.set(EXACT_ALARM_KEY, '1');
+
+    await scheduler.resyncEventReminders(USER);
+
+    assert.equal(
+      nativeControls.secureStore.get(EXACT_ALARM_KEY),
+      '1',
+      'a reminder still ahead of its instant is not evidence of a deferred alarm',
+    );
   } finally {
     await harness.cleanup();
   }
