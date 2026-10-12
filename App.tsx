@@ -9,6 +9,7 @@ import { useAuthStore } from './src/store/authStore';
 import { useSmsIngest } from './src/hooks/useSmsIngest';
 import {
   clearAllEventReminders,
+  handleInitialNotificationResponse,
   initNotificationListeners,
   resyncEventReminders,
 } from './src/services/notificationScheduler';
@@ -58,6 +59,8 @@ export default function App() {
   // Real-device local reminder listeners (fires + taps) live for the app's life.
   useEffect(() => {
     const unsubscribe = initNotificationListeners();
+    // A tap that launched the app never runs through the response listener above.
+    void handleInitialNotificationResponse().catch(() => {});
     return unsubscribe;
   }, []);
 

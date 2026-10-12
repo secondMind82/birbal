@@ -3,6 +3,7 @@ import * as notificationsRepository from '../db/repositories/notifications';
 import type { NotificationInput } from '../db/repositories/notifications';
 import type { AppNotification, Timeline } from '../models/types';
 import * as timelinesService from '../services/timelinesService';
+import { presentSystemNotifications } from '../services/systemNotifications';
 import { parseActivity } from '../utils/activityParser';
 import { useAuthStore } from './authStore';
 
@@ -134,7 +135,7 @@ function recomputeNotifications(
 async function pushSystem(title: string, message: string): Promise<void> {
   const userId = currentUserId();
   if (!userId) return;
-  await notificationsRepository.upsertAll(userId, [
+  const inserted = await notificationsRepository.insertNew(userId, [
     {
       id: `sys-${Date.now()}`,
       type: 'SYSTEM',
@@ -147,6 +148,7 @@ async function pushSystem(title: string, message: string): Promise<void> {
   const notifications = await notificationsRepository.getAll(userId);
   const unread = await notificationsRepository.countUnread(userId);
   useNotificationStore.setState(recomputeNotifications(notifications, unread));
+  void presentSystemNotifications(inserted).catch(() => {});
 }
 
 export const useNotificationStore = create<NotificationState>((set, get) => ({
@@ -160,10 +162,16 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     set({ loading: true });
     try {
       const timelines = await timelinesService.getTimelines(userId);
-      await notificationsRepository.upsertAll(userId, buildNotifications(timelines));
+      const inserted = await notificationsRepository.insertNew(
+        userId,
+        buildNotifications(timelines),
+      );
       const notifications = await notificationsRepository.getAll(userId);
       const unread = await notificationsRepository.countUnread(userId);
       set({ ...recomputeNotifications(notifications, unread), loading: false });
+      // Only rows that did not exist before reach the shade, so the 60s poll and
+      // every app start never re-post something the user already saw.
+      void presentSystemNotifications(inserted).catch(() => {});
     } catch {
       const notifications = await notificationsRepository.getAll(userId).catch(() => []);
       const unread = await notificationsRepository.countUnread(userId).catch(() => 0);

@@ -17,16 +17,16 @@
     "@react-navigation/native-stack": "^7.18.9",
     "axios": "^1.19.0",
     "babel-preset-expo": "~57.0.0",
-    "expo": "~57.0.25",
+    "expo": "~57.0.27",
     "expo-apple-authentication": "~57.0.2",
     "expo-contacts": "~57.0.6",
     "expo-crypto": "~57.0.3",
     "expo-dev-client": "~57.0.19",
     "expo-font": "~57.0.4",
     "expo-linear-gradient": "~57.0.2",
-    "expo-notifications": "~57.0.21",
+    "expo-notifications": "~57.0.22",
     "expo-secure-store": "~57.0.4",
-    "expo-sqlite": "~57.0.3",
+    "expo-sqlite": "~57.0.4",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
     "react-native": "0.86.3",
@@ -52,9 +52,10 @@
     "verify:backup:live": "tsc -p tsconfig.scripts.json && BIRBAL_ROOT=\"$PWD\" node .verify-build/birbal/scripts/verify-backup-live.js",
     "verify:sms": "tsc -p tsconfig.scripts.json && BIRBAL_ROOT=\"$PWD\" node --test .verify-build/birbal/scripts/verify-sms.js",
     "verify:bell": "tsc -p tsconfig.scripts.json && BIRBAL_ROOT=\"$PWD\" node --test .verify-build/birbal/scripts/verify-bell.js",
+    "verify:reminders": "tsc -p tsconfig.scripts.json && BIRBAL_ROOT=\"$PWD\" node --test .verify-build/birbal/scripts/verify-reminders.js",
     "verify:sms:pipe": "tsc -p tsconfig.scripts.json && BIRBAL_ROOT=\"$PWD\" node --test .verify-build/birbal/scripts/verify-sms-pipeline.js",
     "verify:money": "tsc -p tsconfig.scripts.json && BIRBAL_ROOT=\"$PWD\" node --test .verify-build/birbal/scripts/verify-money.js .verify-build/birbal/scripts/verify-expense-flow.js .verify-build/birbal/scripts/verify-sms-permission.js .verify-build/birbal/scripts/verify-timeline-money.js",
-    "verify": "npm run verify:sms && npm run verify:sms:pipe && npm run verify:bell && npm run verify:money && npm run verify:backup"
+    "verify": "npm run verify:sms && npm run verify:sms:pipe && npm run verify:bell && npm run verify:reminders && npm run verify:money && npm run verify:backup"
   },
   "private": true
 }

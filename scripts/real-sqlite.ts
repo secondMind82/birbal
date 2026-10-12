@@ -98,6 +98,19 @@ export const nativeControls = {
   smsCaptureSupported: true,
   /** Stand-in for SecureStore's key-value store. */
   secureStore: new Map<string, string>(),
+  /** Result Notifications.getPermissionsAsync() reports for the notification grant. */
+  notificationsGranted: true,
+  /**
+   * Stand-in for the OS's scheduled-notification store. `scheduleNotificationAsync`
+   * writes here, `cancelScheduledNotificationAsync` deletes, and
+   * `getAllScheduledNotificationsAsync` reads it back — so a test can seed a
+   * still-pending reminder and assert that a resync preserves it. Keys are the
+   * notification identifiers; a resync/re-schedule replaces in place (no dupes).
+   */
+  scheduledNotifications: new Map<
+    string,
+    { identifier: string; content: unknown; trigger: unknown }
+  >(),
   /** Every alert the app raised, for asserting on copy and on nagging. */
   reset(): void {
     this.platform = 'android';
@@ -109,6 +122,8 @@ export const nativeControls = {
     this.permissionRequests = [];
     this.smsCaptureSupported = true;
     this.secureStore = new Map();
+    this.notificationsGranted = true;
+    this.scheduledNotifications = new Map();
     // The compiled stub reads this to decide whether requireNativeModule throws.
     (globalThis as { __birbalNativeControls?: unknown }).__birbalNativeControls = this;
   },
@@ -183,6 +198,24 @@ const EXPO_CRYPTO_STUB = {
   CryptoEncoding: { HEX: 'hex', BASE64: 'base64' },
 };
 
+/**
+ * Converts a JS trigger input (`{ type:'date', date }`, as the app passes to
+ * scheduleNotificationAsync) into the shape Android hands back from
+ * `getAllScheduledNotificationsAsync()` — `DateTrigger.toBundle()` emits
+ * `{ type:'date', repeats, value, channelId }`. Non-date triggers pass through.
+ */
+function toNativeTrigger(trigger: unknown): unknown {
+  if (trigger && typeof trigger === 'object') {
+    const t = trigger as { type?: string; date?: unknown; channelId?: string };
+    if (t.type === 'date') {
+      const raw = t.date;
+      const value = raw instanceof Date ? raw.getTime() : Number(raw);
+      return { type: 'date', repeats: false, value, channelId: t.channelId };
+    }
+  }
+  return trigger ?? null;
+}
+
 const STUBS: Record<string, unknown> = {
   'expo-crypto': EXPO_CRYPTO_STUB,
   'expo-sqlite': {
@@ -191,12 +224,59 @@ const STUBS: Record<string, unknown> = {
   },
   'expo-secure-store': SECURE_STORE_STUB,
   'expo-notifications': {
-    getPermissionsAsync: async () => ({ status: 'granted' }),
-    requestPermissionsAsync: async () => ({ status: 'granted' }),
-    scheduleNotificationAsync: async () => 'scheduled-id',
-    cancelScheduledNotificationAsync: async () => {},
+    getPermissionsAsync: async () => ({
+      granted: nativeControls.notificationsGranted,
+      status: nativeControls.notificationsGranted ? 'granted' : 'denied',
+      canAskAgain: true,
+    }),
+    requestPermissionsAsync: async () => ({
+      granted: nativeControls.notificationsGranted,
+      status: nativeControls.notificationsGranted ? 'granted' : 'denied',
+      canAskAgain: true,
+    }),
     setNotificationHandler: () => {},
-    AndroidImportance: { HIGH: 4, DEFAULT: 3 },
+    setNotificationChannelAsync: async () => null,
+    getNotificationChannelsAsync: async () => [],
+    AndroidImportance: { MIN: 1, LOW: 2, DEFAULT: 3, HIGH: 4, MAX: 5 },
+    SchedulableTriggerInputTypes: {
+      CALENDAR: 'calendar',
+      DAILY: 'daily',
+      WEEKLY: 'weekly',
+      MONTHLY: 'monthly',
+      YEARLY: 'yearly',
+      DATE: 'date',
+      TIME_INTERVAL: 'timeInterval',
+    },
+    // Mirrors the real module closely enough for the scheduler: a scheduled
+    // request is stored under its identifier (replace, never stack) and surfaces
+    // from getAllScheduledNotificationsAsync() with Android's `value` trigger
+    // shape — DateTrigger.toBundle() emits `{ type:'date', repeats, value }`.
+    scheduleNotificationAsync: async (request: {
+      identifier?: string;
+      content?: unknown;
+      trigger?: unknown;
+    }) => {
+      const identifier = request?.identifier ?? `stub-${nativeControls.scheduledNotifications.size}`;
+      nativeControls.scheduledNotifications.set(identifier, {
+        identifier,
+        content: request?.content ?? null,
+        trigger: toNativeTrigger(request?.trigger),
+      });
+      return identifier;
+    },
+    cancelScheduledNotificationAsync: async (identifier: string) => {
+      nativeControls.scheduledNotifications.delete(identifier);
+    },
+    cancelAllScheduledNotificationsAsync: async () => {
+      nativeControls.scheduledNotifications.clear();
+    },
+    getAllScheduledNotificationsAsync: async () => [
+      ...nativeControls.scheduledNotifications.values(),
+    ],
+    getLastNotificationResponse: () => null,
+    clearLastNotificationResponse: () => {},
+    addNotificationReceivedListener: () => ({ remove: () => {} }),
+    addNotificationResponseReceivedListener: () => ({ remove: () => {} }),
   },
   // react-native ships untranspiled Flow, which Node cannot parse. Only the
   // members the imported modules actually touch are provided.

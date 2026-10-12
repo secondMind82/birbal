@@ -20,7 +20,8 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.tci.birbalrn"
+      "package": "com.tci.birbalrn",
+      "permissions": ["android.permission.SCHEDULE_EXACT_ALARM"]
     },
     "web": {
       "favicon": "./assets/favicon.png"

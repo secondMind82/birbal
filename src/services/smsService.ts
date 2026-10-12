@@ -8,6 +8,7 @@ import * as entitiesRepository from '../db/repositories/entities';
 import * as notificationsRepository from '../db/repositories/notifications';
 import * as entitiesService from './entitiesService';
 import * as timelinesService from './timelinesService';
+import { presentSystemNotifications } from './systemNotifications';
 import {
   classifyEntityType,
   extractEventDate,
@@ -140,7 +141,7 @@ async function raiseSmsNotification(
   classification: SmsClassification,
 ): Promise<void> {
   const notificationId = notificationIdFor(message.id);
-  await notificationsRepository.upsertAll(userId, [
+  const inserted = await notificationsRepository.insertNew(userId, [
     {
       id: notificationId,
       type: 'SMS',
@@ -153,6 +154,9 @@ async function raiseSmsNotification(
     },
   ]);
   await smsMessagesRepository.setNotificationId(userId, message.id, notificationId);
+  // Only a genuinely new message surfaces in the shade; a redelivery/duplicate
+  // drain inserts nothing and stays silent.
+  await presentSystemNotifications(inserted);
 }
 
 /** Pending messages, newest first, for the notification center's review list. */
