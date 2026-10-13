@@ -2,7 +2,12 @@ import * as api from '../api/apiService';
 import * as timelinesRepository from '../db/repositories/timelines';
 import * as entitiesRepository from '../db/repositories/entities';
 import { isMoneyType } from '../utils/money';
-import { cancelEventReminder, scheduleEventReminder } from './notificationScheduler';
+import {
+  cancelCreditDueReminder,
+  cancelEventReminder,
+  scheduleCreditDueReminder,
+  scheduleEventReminder,
+} from './notificationScheduler';
 import type { ExpenseMeta, CreateTimelineRequest, Timeline, MoneyType } from '../models/types';
 
 // Coordination between the canonical API and the local SQLite cache.
@@ -29,6 +34,7 @@ function toTimelineInput(timeline: Timeline): timelinesRepository.TimelineInput 
     updatedAt: timeline.updatedAt ?? null,
     expenseAmountPaisa: timeline.expenseAmountPaisa ?? null,
     expenseCategory: timeline.expenseCategory ?? null,
+    creditDueDate: timeline.creditDueDate ?? null,
   };
 }
 
@@ -47,6 +53,7 @@ export interface MoneyAttribution {
   amountPaise: number;
   category?: string | null;
   status?: string;
+  dueDate?: string | null;
 }
 
 // Normalizes both accepted money shapes into one attested attribution. ExpenseMeta
@@ -61,9 +68,10 @@ function toMoneyAttribution(money: ExpenseMeta | MoneyAttribution): MoneyAttribu
       amountPaise: money.amountPaise,
       category: money.category ?? (money.role === 'receive' ? null : 'Other'),
       status: money.status,
+      dueDate: money.dueDate ?? null,
     };
   }
-  return { role: 'expense', amountPaise: money.amountPaise, category: money.category };
+  return { role: 'expense', amountPaise: money.amountPaise, category: money.category, dueDate: null };
 }
 
 // Persists a server-confirmed timeline and reconciles its timeline <-> entity
@@ -152,11 +160,18 @@ export async function createTimeline(
       amountPaise: attribution.amountPaise,
       category: attribution.category ?? null,
       receivableStatus: attribution.status ?? null,
+      creditDueDate: attribution.dueDate ?? null,
     });
     persisted.expenseAmountPaisa = attribution.amountPaise;
     persisted.expenseCategory = attribution.category ?? null;
     persisted.moneyType = attribution.role;
     persisted.receivableStatus = attribution.status ?? null;
+    persisted.creditDueDate = attribution.dueDate ?? null;
+    if (attribution.role === 'receive') {
+      void scheduleCreditDueReminder(persisted, true).catch(() => {});
+    } else {
+      void cancelCreditDueReminder(persisted.id).catch(() => {});
+    }
   } else {
     // Park the device-level local notification for the event (stable id dedupes).
     void scheduleEventReminder(created).catch(() => {});
@@ -180,11 +195,18 @@ export async function updateTimeline(
       amountPaise: attribution.amountPaise,
       category: attribution.category ?? null,
       receivableStatus: attribution.status ?? null,
+      creditDueDate: attribution.dueDate ?? null,
     });
     persisted.expenseAmountPaisa = attribution.amountPaise;
     persisted.expenseCategory = attribution.category ?? null;
     persisted.moneyType = attribution.role;
     persisted.receivableStatus = attribution.status ?? null;
+    persisted.creditDueDate = attribution.dueDate ?? null;
+    if (attribution.role === 'receive') {
+      void scheduleCreditDueReminder(persisted, true).catch(() => {});
+    } else {
+      void cancelCreditDueReminder(persisted.id).catch(() => {});
+    }
   } else {
     // Reschedule the same event slot with the new date/time (old one is cancelled
     // inside scheduleEventReminder before the updated one is parked).
@@ -200,5 +222,6 @@ export async function deleteTimeline(
   const uid = requireUserId(userId);
   await timelinesRepository.remove(uid, id);
   void cancelEventReminder(id).catch(() => {});
+  void cancelCreditDueReminder(id).catch(() => {});
   void api.deleteTimeline(id).catch(() => {});
 }

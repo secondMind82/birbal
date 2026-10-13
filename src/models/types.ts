@@ -113,6 +113,8 @@ export interface Timeline {
   // presence never implies a direction, so this explicit tag is what makes the
   // classification unambiguous. NULL = not a money entry. Never sent to backend.
   moneyType?: MoneyType | null;
+  /** Local-only repayment calendar date (YYYY-MM-DD); never sent to the API. */
+  creditDueDate?: string | null;
   // Local-only provenance. Set when the record was created by saving a captured
   // SIM SMS, so the UI can attribute the record to its message and the SMS flow
   // can find the record it already created instead of duplicating it. The

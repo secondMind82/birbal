@@ -71,6 +71,7 @@ function EventForm({ existing, onDone }: { existing?: Timeline; onDone: () => vo
           amountPaise: parsed.money.amountPaise,
           category: parsed.money.category ?? null,
           status: parsed.money.status,
+          dueDate: parsed.money.dueDate ?? null,
         }
       : null;
 

@@ -90,10 +90,11 @@ export const BACKUP_TABLES: readonly TableSpec[] = [
       'money_type',
       'source',
       'source_notification_id',
+      'credit_due_date',
     ],
     columnTypes: { title: 'text', event_date: 'text', show_on_calendar: 'boolean' },
-    // Added in schema 8; backups taken before it simply have no such key.
-    optionalColumns: ['source', 'source_notification_id'],
+    // Added in schema 8 and 9; earlier backups simply have no such keys.
+    optionalColumns: ['source', 'source_notification_id', 'credit_due_date'],
   },
   {
     key: 'timeline_entities',

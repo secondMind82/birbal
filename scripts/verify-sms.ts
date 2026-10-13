@@ -203,10 +203,11 @@ test('the sms table and the provenance columns exist in the schema', async () =>
   assert.match(sql, /ALTER TABLE entities ADD COLUMN source_notification_id TEXT/);
 });
 
-test('the registry marks the post-v2 columns optional so old backups stay valid', async () => {
+test('the registry marks later-added timeline columns optional so old backups stay valid', async () => {
   const timelines = BACKUP_TABLES.find((s) => s.key === 'timelines');
   const entities = BACKUP_TABLES.find((s) => s.key === 'entities');
   assert.deepEqual([...(timelines?.optionalColumns ?? [])].sort(), [
+    'credit_due_date',
     'source',
     'source_notification_id',
   ]);

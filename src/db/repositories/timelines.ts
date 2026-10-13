@@ -21,6 +21,7 @@ export interface TimelineInput {
   expenseCategory?: string | null;
   receivableStatus?: string | null;
   moneyType?: MoneyType | null;
+  creditDueDate?: string | null;
   /** Local-only provenance; see the SMS note on Timeline. */
   source?: TimelineSource | null;
   sourceNotificationId?: string | null;
@@ -37,6 +38,7 @@ export type TimelineUpdate = Partial<
     | 'expenseCategory'
     | 'receivableStatus'
     | 'moneyType'
+    | 'creditDueDate'
     | 'source'
     | 'sourceNotificationId'
   >
@@ -59,6 +61,7 @@ interface TimelineRow {
   money_type: string | null;
   source: string | null;
   source_notification_id: string | null;
+  credit_due_date: string | null;
 }
 
 interface EntityJoinRow {
@@ -91,6 +94,7 @@ function toTimelineRow(
   string | null,
   string | null,
   string | null,
+  string | null,
 ] {
   return [
     data.id,
@@ -107,11 +111,12 @@ function toTimelineRow(
     isMoneyType(data.moneyType) ? data.moneyType : null,
     data.source ?? null,
     data.sourceNotificationId ?? null,
+    data.creditDueDate ?? null,
   ];
 }
 
-const INSERT_TIMELINE_SQL = `INSERT INTO timelines (id, user_id, title, description, event_date, show_on_calendar, created_at, updated_at, expense_amount_paise, expense_category, receivable_status, money_type, source, source_notification_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+const INSERT_TIMELINE_SQL = `INSERT INTO timelines (id, user_id, title, description, event_date, show_on_calendar, created_at, updated_at, expense_amount_paise, expense_category, receivable_status, money_type, source, source_notification_id, credit_due_date)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
 
 function toTimeline(dbRow: TimelineRow, entities: TimelineEntityLink[]): Timeline {
   return {
@@ -130,6 +135,7 @@ function toTimeline(dbRow: TimelineRow, entities: TimelineEntityLink[]): Timelin
     moneyType: isMoneyType(dbRow.money_type) ? dbRow.money_type : null,
     source: isTimelineSource(dbRow.source) ? dbRow.source : null,
     sourceNotificationId: dbRow.source_notification_id,
+    creditDueDate: dbRow.credit_due_date,
   };
 }
 
@@ -287,6 +293,10 @@ export async function update(
       sets.push('source_notification_id = ?');
       values.push(changes.sourceNotificationId ?? null);
     }
+    if (changes.creditDueDate !== undefined) {
+      sets.push('credit_due_date = ?');
+      values.push(changes.creditDueDate ?? null);
+    }
     if (changes.updatedAt !== undefined) {
       sets.push('updated_at = ?');
       values.push(changes.updatedAt);
@@ -393,6 +403,7 @@ export interface MoneyAttributionInput {
   amountPaise: number;
   category?: string | null;
   receivableStatus?: string | null;
+  creditDueDate?: string | null;
 }
 
 // Stamps local-only money attribution onto an already-persisted timeline row
@@ -408,12 +419,13 @@ export async function setMoneyAttribution(
     const db = await getDb();
     const result = await db.runAsync(
       `UPDATE timelines
-       SET expense_amount_paise = ?, expense_category = ?, receivable_status = ?, money_type = ?
+       SET expense_amount_paise = ?, expense_category = ?, receivable_status = ?, money_type = ?, credit_due_date = ?
        WHERE id = ? AND user_id = ?`,
       attribution.amountPaise,
       attribution.category ?? null,
       attribution.receivableStatus ?? null,
       isMoneyType(attribution.role) ? attribution.role : 'expense',
+      attribution.creditDueDate ?? null,
       id,
       userId,
     );
@@ -478,10 +490,11 @@ export async function replaceAll(userId: string, timelines: Timeline[]): Promise
         money_type: string | null;
         source: string | null;
         source_notification_id: string | null;
+        credit_due_date: string | null;
       }>(
-        `SELECT id, expense_amount_paise, expense_category, receivable_status, money_type, source, source_notification_id
+        `SELECT id, expense_amount_paise, expense_category, receivable_status, money_type, source, source_notification_id, credit_due_date
          FROM timelines
-         WHERE user_id = ? AND (expense_amount_paise IS NOT NULL OR receivable_status IS NOT NULL OR money_type IS NOT NULL OR source IS NOT NULL OR source_notification_id IS NOT NULL)`,
+         WHERE user_id = ? AND (expense_amount_paise IS NOT NULL OR receivable_status IS NOT NULL OR money_type IS NOT NULL OR source IS NOT NULL OR source_notification_id IS NOT NULL OR credit_due_date IS NOT NULL)`,
         userId,
       );
       const priorMoneyById = new Map(priorMoney.map((r) => [r.id, r]));
@@ -559,6 +572,7 @@ export async function replaceAll(userId: string, timelines: Timeline[]): Promise
               source: (isTimelineSource(prior.source) ? prior.source : null) ?? timeline.source ?? null,
               sourceNotificationId:
                 prior.source_notification_id ?? timeline.sourceNotificationId ?? null,
+              creditDueDate: prior.credit_due_date ?? timeline.creditDueDate ?? null,
             } satisfies TimelineInput)
           : timeline;
 

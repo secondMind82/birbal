@@ -12,7 +12,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 //   3. New DDL can slot into its own `up` (e.g. CREATE TABLE notes (..., user_id TEXT
 //      REFERENCES users(id) ...)).
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 export interface Migration {
   version: number;
@@ -252,6 +252,14 @@ const MIGRATIONS: readonly Migration[] = [
         ALTER TABLE timelines ADD COLUMN source_notification_id TEXT;
         ALTER TABLE entities ADD COLUMN source_notification_id TEXT;
       `);
+    },
+  },
+  {
+    // Credit due dates are local-only metadata on the existing Timeline row.
+    // NULL means the user has not supplied a repayment date.
+    version: 9,
+    up: async (db) => {
+      await db.execAsync('ALTER TABLE timelines ADD COLUMN credit_due_date TEXT;');
     },
   },
 ];

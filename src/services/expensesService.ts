@@ -2,6 +2,7 @@ import * as timelinesRepository from '../db/repositories/timelines';
 import * as timelinesService from './timelinesService';
 import type { Expense, ExpenseMeta, Timeline } from '../models/types';
 import { isExpenseCategory } from '../utils/money';
+import { cancelCreditDueReminder } from './notificationScheduler';
 
 // Expense orchestration. An expense IS a timeline row carrying local-only
 // expense attribution (amount in paise + category); this service is a thin,
@@ -59,7 +60,11 @@ export async function setReceivableStatus(
   status: string,
 ): Promise<boolean> {
   const uid = requireUserId(userId);
-  return timelinesRepository.setReceivableStatus(uid, timelineId, status);
+  const updated = await timelinesRepository.setReceivableStatus(uid, timelineId, status);
+  if (updated && status !== 'pending') {
+    await cancelCreditDueReminder(timelineId);
+  }
+  return updated;
 }
 
 // Cache-first: fetches local instantly and lets the existing background sync

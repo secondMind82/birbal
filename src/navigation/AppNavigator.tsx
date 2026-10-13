@@ -8,6 +8,7 @@ import LoginScreen from '../screens/auth/LoginScreen';
 import SignupScreen from '../screens/auth/SignupScreen';
 import DashboardScreen from '../screens/DashboardScreen';
 import ExpensesScreen from '../screens/ExpensesScreen';
+import RemindersScreen from '../screens/RemindersScreen';
 import TimelineScreen from '../screens/TimelineScreen';
 import CalendarScreen from '../screens/CalendarScreen';
 import EntitiesScreen from '../screens/EntitiesScreen';
@@ -48,6 +49,7 @@ function MainDrawer() {
       }}>
       <Drawer.Screen name="Dashboard" component={DashboardScreen} />
       <Drawer.Screen name="Expenses" component={ExpensesScreen} />
+      <Drawer.Screen name="Reminders" component={RemindersScreen} />
       <Drawer.Screen name="Timeline" component={TimelineScreen} />
       <Drawer.Screen name="Calendar" component={CalendarScreen} />
       <Drawer.Screen name="Entities" component={EntitiesScreen} />

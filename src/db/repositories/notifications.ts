@@ -105,6 +105,71 @@ export async function upsertAll(userId: string, items: NotificationInput[]): Pro
   await insertNew(userId, items);
 }
 
+/**
+ * Inserts the missing rows and refreshes the text of the ones that already exist,
+ * keyed by the stable id, returning only the rows that were genuinely inserted.
+ *
+ * Generated rows (event/reminder countdowns, birthdays, "timeline updated") are
+ * derived from live data, so their message can change without their id changing —
+ * an edited event time has to refresh its countdown rather than keep the first
+ * message it ever produced. Plain INSERT OR IGNORE would freeze that first text
+ * forever, which is exactly the stale "Starts in N hours" the Bell kept showing.
+ *
+ * `read` is preserved so a refresh never re-lights a badge the user already
+ * cleared, and only newly-inserted rows are returned so callers that surface a
+ * row outside the in-app list (the Android mirror) still act exactly once.
+ */
+export async function refreshGenerated(
+  userId: string,
+  items: NotificationInput[],
+): Promise<NotificationInput[]> {
+  if (items.length === 0) return [];
+  const inserted: NotificationInput[] = [];
+  await serializeWrite(async () => {
+    const db = await getDb();
+    await db.withExclusiveTransactionAsync(async (txn) => {
+      for (const item of items) {
+        const title = item.title;
+        const message = item.message ?? null;
+        const result = await txn.runAsync(
+          `INSERT OR IGNORE INTO notifications
+             (id, user_id, type, title, message, icon, read, entity_id, timeline_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          item.id,
+          userId,
+          item.type,
+          title,
+          message,
+          item.icon ?? null,
+          item.read ? 1 : 0,
+          item.entityId ?? null,
+          item.timelineId ?? null,
+          item.createdAt ?? new Date().toISOString(),
+        );
+        if (result.changes > 0) {
+          inserted.push(item);
+          continue;
+        }
+        // Existing row: update only when the derived text actually changed, so a
+        // steady countdown input is not written on every poll.
+        await txn.runAsync(
+          `UPDATE notifications
+             SET title = ?, message = ?
+           WHERE id = ? AND user_id = ?
+             AND (title IS NOT ? OR message IS NOT ?)`,
+          title,
+          message,
+          item.id,
+          userId,
+          title,
+          message,
+        );
+      }
+    });
+  });
+  return inserted;
+}
+
 export async function markRead(userId: string, id: string): Promise<boolean> {
   return serializeWrite(async () => {
     const db = await getDb();

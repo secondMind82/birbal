@@ -7,6 +7,8 @@ import * as smsMessagesRepository from '../db/repositories/smsMessages';
 import { navigationRef } from '../navigation/navigationRef';
 import type { AppNotification, Timeline } from '../models/types';
 import { useAuthStore } from '../store/authStore';
+import { creditDueReminderTime } from '../utils/creditDueDate';
+import { formatPaise, isReceivablePending } from '../utils/money';
 import { ANDROID_CHANNEL_ID, ensureNotificationChannel } from './systemNotifications';
 
 // Real-device local notifications for events. Each event maps 1:1 to a scheduled
@@ -17,6 +19,7 @@ import { ANDROID_CHANNEL_ID, ensureNotificationChannel } from './systemNotificat
 // firing event into the in-app Notification Center.
 
 const ID_PREFIX = 'birbal-ev-';
+const CREDIT_ID_PREFIX = 'birbal-credit-due-';
 
 // A reminder the OS still reports as pending this long after its instant has
 // demonstrably been deferred (not just the normal jitter of an inexact alarm).
@@ -109,6 +112,59 @@ function scheduleInput(
   return { ok: true, start };
 }
 
+// --- Safe reminder diagnostics ----------------------------------------------
+// These emit ids and ISO timestamps only, never the private event text. They
+// exist to explain on-device "the reminder never fired" reports, where the stored
+// `eventDate` must be compared against the parked notification's trigger.
+
+// A clock-looking token anywhere in the text — colon, dot or space separated and
+// carrying an am/pm marker. Deliberately looser than parseClockTime: it must also
+// catch "12 : 30 pm", the spaced-colon form parseClockTime currently rejects.
+const CLOCK_HINT_RE =
+  /\d{1,2}\s*[:.]\s*\d{2}\s*(?:am|pm)\b|\d{1,2}\s+\d{2}\s*(?:am|pm)\b|\d{1,2}\s*(?:am|pm)\b/i;
+
+export function textMentionsClock(text: string): boolean {
+  return CLOCK_HINT_RE.test(text ?? '');
+}
+
+// Matches `createdAt` within a minute and still recent.
+const DROPPED_TIME_MATCH_MS = 60_000;
+const DROPPED_TIME_RECENT_MS = 48 * 60 * 60 * 1000;
+
+// Signature of a dropped event time: the stored `eventDate` sits on top of the
+// row's creation instant (so no clock was ever applied and `extractEventDate`
+// fell back to `new Date()`), yet the text still mentions a clock. Such an event
+// is already in the past the moment it is saved, so `scheduleInput` refuses it
+// and no reminder can ever be parked.
+export function looksLikeDroppedEventTime(
+  timeline: Timeline,
+  now: number = Date.now(),
+): boolean {
+  if (!timeline?.createdAt) return false;
+  const eventDate = new Date(timeline.eventDate).getTime();
+  const createdAt = new Date(timeline.createdAt).getTime();
+  if (!Number.isFinite(eventDate) || !Number.isFinite(createdAt)) return false;
+  if (Math.abs(eventDate - createdAt) > DROPPED_TIME_MATCH_MS) return false;
+  if (now - eventDate > DROPPED_TIME_RECENT_MS) return false;
+  return textMentionsClock(timeline.description ?? '');
+}
+
+// Emits one safe warning per suspicious event so a genuine parse failure is
+// visible in device logs (no title/description is ever printed).
+export function diagnoseDroppedEventTimes(
+  timelines: Timeline[],
+  now: number = Date.now(),
+): void {
+  for (const t of timelines) {
+    if (!looksLikeDroppedEventTime(t, now)) continue;
+    console.warn(
+      `[birbal] reminder risk: event ${t.id} has eventDate=${t.eventDate} equal to its ` +
+        'creation time, but its text mentions a clock. The time was not applied, so the ' +
+        'instant is already in the past and no reminder can be parked.',
+    );
+  }
+}
+
 // The instant a scheduled notification will fire. Android surfaces its DateTrigger
 // as `{ type: 'date', value }`, but the field is named `date` on the JS input side
 // and `timestamp` in places, so accept all three rather than assume one shape.
@@ -195,6 +251,106 @@ export async function cancelEventReminder(timelineId: string): Promise<void> {
   );
 }
 
+function creditIdentifierFor(timelineId: string): string {
+  return `${CREDIT_ID_PREFIX}${timelineId}`;
+}
+
+function creditReminderInput(timeline: Timeline): { at: Date | null } {
+  if (
+    !timeline.id ||
+    timeline.moneyType !== 'receive' ||
+    timeline.expenseAmountPaisa == null ||
+    !isReceivablePending(timeline.receivableStatus) ||
+    !timeline.creditDueDate
+  ) return { at: null };
+  const at = creditDueReminderTime(timeline.creditDueDate);
+  return { at: at && at.getTime() > Date.now() ? at : null };
+}
+
+/** Schedules the existing credit row at 9:00 AM local time on its due date. */
+export async function scheduleCreditDueReminder(
+  timeline: Timeline,
+  requestPermission = true,
+): Promise<boolean> {
+  const planned = creditReminderInput(timeline);
+  if (!planned.at) {
+    await cancelCreditDueReminder(timeline.id);
+    return false;
+  }
+
+  await ensureBaselineSetup();
+  if (!(await hasPermission())) {
+    if (!requestPermission || !(await ensureNotificationPermission())) return false;
+  }
+  if (requestPermission) await ensureExactAlarmPermission();
+
+  const person = timeline.entities?.find((link) => link.entity.type.toUpperCase() === 'PERSON')?.entity.name;
+  const who = person || 'A credit';
+  await Notifications.cancelScheduledNotificationAsync(creditIdentifierFor(timeline.id)).catch(() => {});
+  await Notifications.scheduleNotificationAsync({
+    identifier: creditIdentifierFor(timeline.id),
+    content: {
+      title: 'Credit repayment due',
+      body: `${formatPaise(timeline.expenseAmountPaisa)} from ${who} is due today.`,
+      data: { type: 'CREDIT_DUE', timelineId: timeline.id },
+    },
+    trigger: {
+      type: Notifications.SchedulableTriggerInputTypes.DATE,
+      date: planned.at,
+      channelId: ANDROID_CHANNEL_ID,
+    },
+  });
+  return true;
+}
+
+export async function cancelCreditDueReminder(timelineId: string): Promise<void> {
+  if (!timelineId) return;
+  await Notifications.cancelScheduledNotificationAsync(creditIdentifierFor(timelineId)).catch(() => {});
+}
+
+/** Reconciles only credit due reminders; event notification identifiers are untouched. */
+export async function resyncCreditDueReminders(userId: string): Promise<void> {
+  await ensureBaselineSetup();
+  if (!(await hasPermission())) return;
+
+  const timelines = await timelinesRepository.getAll(userId);
+  const eligible = new Map<string, Timeline>();
+  for (const timeline of timelines) {
+    if (creditReminderInput(timeline).at) eligible.set(timeline.id, timeline);
+  }
+
+  const pending = await Notifications.getAllScheduledNotificationsAsync();
+  const parked = new Set<string>();
+  for (const request of pending) {
+    const identifier = request.identifier ?? '';
+    if (!identifier.startsWith(CREDIT_ID_PREFIX)) continue;
+    const timelineId = identifier.slice(CREDIT_ID_PREFIX.length);
+    const timeline = eligible.get(timelineId);
+    const expectedAt = timeline ? creditReminderInput(timeline).at?.getTime() : null;
+    const scheduledAt = scheduledTriggerTime(request.trigger);
+    if (expectedAt !== null && scheduledAt === expectedAt) {
+      parked.add(timelineId);
+    } else {
+      await Notifications.cancelScheduledNotificationAsync(identifier).catch(() => {});
+    }
+  }
+
+  await Promise.all(
+    [...eligible.values()]
+      .filter((timeline) => !parked.has(timeline.id))
+      .map((timeline) => scheduleCreditDueReminder(timeline, false).catch(() => false)),
+  );
+}
+
+export async function clearAllCreditDueReminders(): Promise<void> {
+  const scheduled = await Notifications.getAllScheduledNotificationsAsync().catch(() => []);
+  await Promise.all(
+    scheduled
+      .filter((request) => (request.identifier ?? '').startsWith(CREDIT_ID_PREFIX))
+      .map((request) => Notifications.cancelScheduledNotificationAsync(request.identifier).catch(() => {})),
+  );
+}
+
 // Re-parks scheduled event notifications from local DB state WITHOUT dropping a
 // still-pending one. `getAllScheduledNotificationsAsync()` only returns
 // notifications the OS has not delivered yet, so a reminder still in that list has
@@ -214,6 +370,8 @@ export async function resyncEventReminders(userId: string): Promise<void> {
 
   const timelines = await timelinesRepository.getAll(userId);
   const byId = new Map(timelines.map((t) => [t.id, t]));
+
+  diagnoseDroppedEventTimes(timelines);
 
   // Keep every still-pending reminder that is still valid; cancel the rest.
   const pending = await Notifications.getAllScheduledNotificationsAsync();
@@ -291,7 +449,7 @@ async function recordFired(timelineId: string): Promise<void> {
 // Payload every Birbal notification carries into a tap. Mirrored notifications
 // set `type` + `notificationId`; a scheduled event reminder carries `timelineId`.
 type NotificationData = {
-  type?: AppNotification['type'];
+  type?: AppNotification['type'] | 'CREDIT_DUE';
   entityId?: string | null;
   timelineId?: string | null;
   notificationId?: string;
@@ -319,6 +477,14 @@ function goToDashboard(): void {
 // have been reviewed or ignored after the notification was posted — and anything
 // unrecognised falls back to the Dashboard rather than doing nothing.
 async function routeFromData(data: NotificationData | undefined): Promise<void> {
+  if (data?.type === 'CREDIT_DUE') {
+    navigate(() =>
+      navigationRef.dispatch(
+        CommonActions.navigate({ name: 'Main', params: { screen: 'Reminders' } }),
+      ),
+    );
+    return;
+  }
   if (data?.type === 'SMS') {
     const userId = useAuthStore.getState().user?.id ?? null;
     const smsId = (data.notificationId ?? '').replace(/^sms-/, '');

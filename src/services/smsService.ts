@@ -278,6 +278,7 @@ export async function saveSms(
     // default here the same message saved as 'pending' offline and as a
     // settled credit online.
     receivableStatus: parsed.money?.status ?? (moneyType === 'receive' ? 'pending' : null),
+    creditDueDate: moneyType === 'receive' ? parsed.money?.dueDate ?? null : null,
     linkedIds,
     message,
   });
@@ -438,6 +439,7 @@ interface PersistTimelineArgs {
   amountPaise: number | null;
   category: string | null;
   receivableStatus: string | null;
+  creditDueDate: string | null;
   linkedIds: string[];
   message: SmsMessage;
 }
@@ -466,7 +468,12 @@ async function persistTimeline(
     // same distinction the Expenses and Money-to-Receive pages already make.
     const attribution =
       args.moneyType === 'receive'
-        ? { role: 'receive' as const, amountPaise: args.amountPaise, status: args.receivableStatus ?? undefined }
+        ? {
+            role: 'receive' as const,
+            amountPaise: args.amountPaise,
+            status: args.receivableStatus ?? undefined,
+            dueDate: args.creditDueDate,
+          }
         : { role: 'expense' as const, amountPaise: args.amountPaise, category: args.category };
     try {
       const created = await timelinesService.createTimeline(userId, request, attribution);
@@ -515,6 +522,7 @@ async function createLocalTimeline(args: PersistTimelineArgs): Promise<Timeline>
       expenseCategory: args.moneyType === 'receive' ? null : args.category,
       receivableStatus: args.moneyType === 'receive' ? args.receivableStatus ?? 'pending' : null,
       moneyType: args.moneyType,
+      creditDueDate: args.moneyType === 'receive' ? args.creditDueDate : null,
       source: 'SMS',
       sourceNotificationId: args.message.id,
     },

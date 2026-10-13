@@ -320,6 +320,23 @@ export default function DashboardScreen() {
           }
         }
 
+        // A clearly named recipient in a lent/loaned credit is part of the
+        // structured transaction. Resolve or create that person and link it to
+        // this same timeline row, just as an @mention would.
+        if (parsedEarly.money?.role === 'receive' && /\b(?:lent|loaned)\b/i.test(text)) {
+          const recipient = text.match(/\b(?:lent|loaned)\s+(?:to\s+)?@?([\p{L}][\p{L}'’-]*)/iu)?.[1];
+          if (recipient) {
+            const existing = findEntityByName(recipient, entities, timelines);
+            if (existing) {
+              linkedIds.push(existing.id);
+            } else {
+              const created = await entitiesService.ensurePersonEntity(user?.id, recipient);
+              linkedIds.push(created.id);
+              setEntities((prev) => [...prev, created]);
+            }
+          }
+        }
+
         const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
 
         let description = text;
@@ -339,6 +356,7 @@ export default function DashboardScreen() {
                 amountPaise: parsed.money.amountPaise,
                 category: parsed.money.category ?? null,
                 status: parsed.money.status,
+                dueDate: parsed.money.dueDate ?? null,
               }
             : undefined;
 

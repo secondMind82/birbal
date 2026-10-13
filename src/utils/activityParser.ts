@@ -1,4 +1,5 @@
 import { detectExpenseCategory, parseAmountToPaise, formatPaise } from './money';
+import { extractCreditDueDate } from './creditDueDate';
 export interface DetailRow {
   emoji: string;
   label: string;
@@ -25,6 +26,8 @@ export interface MoneyDetection {
   // Best-guess expense category from the text ('Grocery', 'Food', ...). Credits
   // (receive) never take a category — null keeps the Expenses view clean.
   category?: string | null;
+  /** Local calendar date (YYYY-MM-DD), only when repayment timing is explicit. */
+  dueDate?: string | null;
 }
 
 const DAY_MAP: Record<string, string> = {
@@ -51,9 +54,9 @@ const RECEIVABLE_RE =
 const EXPENSE_RE =
   /\b(?:bought|purchased?|spent|spend|shopping|cost|paid\s+for)\b/i;
 
-// Money PAID OUT to someone: an explicit give/lend verb immediately followed by
-// an explicit amount indicator. The amount is required so "I gave him a call" is
-// never classified as money.
+// Money paid or loaned to someone: an explicit verb immediately followed by an
+// explicit amount indicator. The amount is required so "I gave him a call" is
+// never classified as money. Lend/loan is handled separately as a receivable.
 const MONEY_GIVEN_RE =
   /\b(?:gave|given|lent|loaned)\b[^.!?;]{0,40}(?:₹|rs\.?|rupees|paisa)\s*\d/i;
 
@@ -62,6 +65,20 @@ const MONEY_GIVEN_RE =
 // returned the money" stays a plain note when no figure is stated.
 const MONEY_RETURNED_RE =
   /\b(?:returned?|repaid|paid\s+back|gave\s+back)\b[^.!?;]{0,40}(?:₹|rs\.?|rupees|paisa)\s*\d/i;
+
+const CREDIT_REPAYMENT_PROMISE_RE =
+  /\b(?:will|shall|should|can|is\s+going\s+to)\s+(?:return|repay|pay\s+back)\b[^.!?;]{0,100}(?:₹|rs\.?|rupees|paisa)\s*\d/i;
+
+// Some users omit the currency marker in the specific promise form "will give
+// me 2000". Keep this narrow: only read a bare amount immediately after that
+// repayment phrase, never an unrelated date elsewhere in the sentence.
+function giveMePromiseAmountPaise(text: string): number {
+  const match = text.match(
+    /\b(?:will|shall)\s+give\s+me\s+(\d{1,7}(?:,\d{3})*)\b(?!\s*[-/.:])/i,
+  );
+  if (!match) return 0;
+  return parseAmountToPaise(`₹${match[1].replace(/,/g, '')}`) ?? 0;
+}
 
 // Amount is only ever read from an explicit money indicator (₹, rs, rupees,
 // paisa) — never from a bare number, so dates like "23/09/2026" can't be picked
@@ -108,7 +125,8 @@ export function sanitizeName(raw: string): string {
 }
 
 // Parses a wall-clock time that carries an explicit am/pm marker. Minutes may be
-// colon/dot-joined or simply space-separated, because people often drop the colon
+// colon/dot-joined — with or without surrounding spaces ("12:30 pm", "12 : 30 pm",
+// "1 : 00 PM") — or simply space-separated, because people often drop the colon
 // when typing quickly ("1 52 pm" means 1:52 PM, not hour 52). Impossible values
 // (hour outside 1..12, minute outside 0..59) return null so a stray number can
 // never overflow a Date — setHours(52, ...) used to roll the event two days
@@ -116,7 +134,7 @@ export function sanitizeName(raw: string): string {
 export function parseClockTime(
   text: string,
 ): { hour24: number; minute: number; raw: string } | null {
-  const m = text.match(/(\d{1,2})(?:[:.](\d{2})|\s+(\d{2}))?\s*(am|pm)\b/i);
+  const m = text.match(/(\d{1,2})\s*(?:[:.]\s*(\d{2})|\s+(\d{2}))?\s*(am|pm)\b/i);
   if (!m) return null;
   const hour12 = parseInt(m[1], 10);
   const minute = parseInt(m[2] ?? m[3] ?? '0', 10);
@@ -156,11 +174,22 @@ export function extractEventDate(text: string): Date {
     }
   }
 
-  if (dateSet && clock) {
-    base.setHours(clock.hour24, clock.minute, 0, 0);
+  if (dateSet) {
+    if (clock) base.setHours(clock.hour24, clock.minute, 0, 0);
+    return base;
   }
 
-  return dateSet ? base : new Date();
+  // No explicit day: a bare clock means the next occurrence of that wall time on
+  // the device. Apply it to today when it is still ahead; once it has already
+  // passed, roll to tomorrow so the entry keeps a schedulable future instant
+  // instead of silently collapsing to the moment it was typed.
+  if (clock) {
+    base.setHours(clock.hour24, clock.minute, 0, 0);
+    if (base.getTime() <= Date.now()) base.setDate(base.getDate() + 1);
+    return base;
+  }
+
+  return new Date();
 }
 
 function weekdayIndex(name: string): number {
@@ -258,6 +287,29 @@ export function parseActivity(text: string, person?: string): ParsedActivity {
   // fallback for entries like "shaaf will take ₹5000 from me and give it back".
   // Status: 'received' when the wording says the money already came back
   // (returned/repaid/paid back), otherwise 'pending'.
+  const giveMeAmountPaise = giveMePromiseAmountPaise(text);
+  if (CREDIT_REPAYMENT_PROMISE_RE.test(text) || giveMeAmountPaise > 0) {
+    const amountPaise = moneyAmountPaise(text) || giveMeAmountPaise;
+    return {
+      title: '💰 MONEY RECEIVABLE',
+      matched: true,
+      details: [
+        ...(amountPaise > 0
+          ? [{ emoji: '💰', label: 'Amount', value: formatPaise(amountPaise) }]
+          : []),
+        ...details,
+      ],
+      message: cleanText,
+      money: {
+        role: 'receive',
+        amountPaise,
+        status: 'pending',
+        category: null,
+        dueDate: extractCreditDueDate(text),
+      },
+    };
+  }
+
   if (isReceivableText(text)) {
     const amountPaise = moneyAmountPaise(text);
     const status = MONEY_RETURNED_RE.test(text) ? 'received' : 'pending';
@@ -271,13 +323,41 @@ export function parseActivity(text: string, person?: string): ParsedActivity {
         ...details,
       ],
       message: cleanText,
-      money: { role: 'receive', amountPaise, status, category: null },
+      money: {
+        role: 'receive',
+        amountPaise,
+        status,
+        category: null,
+        dueDate: extractCreditDueDate(text),
+      },
     };
   }
 
   // Money the user paid OUT (expense). Distinct from the PAYMENT REMINDER branch
   // so bought/spent/gave entries never render as a payable/owed item. Status:
   // DEBIT entries are recorded as already 'paid'.
+  if (/\b(?:lent|loaned)\b/i.test(text) && MONEY_GIVEN_RE.test(text)) {
+    const amountPaise = moneyAmountPaise(text);
+    return {
+      title: '💰 MONEY RECEIVABLE',
+      matched: true,
+      details: [
+        ...(amountPaise > 0
+          ? [{ emoji: '💰', label: 'Amount', value: formatPaise(amountPaise) }]
+          : []),
+        ...details,
+      ],
+      message: cleanText,
+      money: {
+        role: 'receive',
+        amountPaise,
+        status: 'pending',
+        category: null,
+        dueDate: extractCreditDueDate(text),
+      },
+    };
+  }
+
   if (EXPENSE_RE.test(lower) || MONEY_GIVEN_RE.test(lower)) {
     const amountPaise = moneyAmountPaise(text);
     return {
@@ -311,7 +391,13 @@ export function parseActivity(text: string, person?: string): ParsedActivity {
           ...details,
         ],
         message: cleanText,
-        money: { role: 'receive', amountPaise, status, category: null },
+        money: {
+          role: 'receive',
+          amountPaise,
+          status,
+          category: null,
+          dueDate: extractCreditDueDate(text),
+        },
       };
     }
   }

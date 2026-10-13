@@ -29,6 +29,7 @@ import { freshDb, nativeControls } from './real-sqlite';
 
 const USER = 'user-1';
 const ID_PREFIX = 'birbal-ev-';
+const CREDIT_ID_PREFIX = 'birbal-credit-due-';
 
 /** Loads a migrated DB harness plus the production scheduler/repository. */
 async function setup() {
@@ -60,6 +61,29 @@ function parked(timelineId: string) {
 
 function parkedValue(timelineId: string): number | undefined {
   return (parked(timelineId)?.trigger as { value?: number } | undefined)?.value;
+}
+
+function localDateAfter(days: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+async function addCredit(timelines: Awaited<ReturnType<typeof setup>>['timelines'], id: string, dueDate: string | null) {
+  await timelines.create(USER, {
+    id,
+    title: 'Money receivable',
+    description: `Credit ${id}`,
+    eventDate: iso(Date.now()),
+    showOnCalendar: false,
+  });
+  await timelines.setMoneyAttribution(USER, id, {
+    role: 'receive',
+    amountPaise: 500000,
+    receivableStatus: 'pending',
+    creditDueDate: dueDate,
+  });
+  return (await timelines.getById(USER, id))!;
 }
 
 // Must be the first test to run: `ensureNotificationChannel` is memoized by a
@@ -362,6 +386,165 @@ test('an on-time future reminder does not re-arm the exact-alarm prompt', async 
       '1',
       'a reminder still ahead of its instant is not evidence of a deferred alarm',
     );
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+// The device report: a meeting typed as "faiz meeting with shaaf at 12 : 30 pm"
+// showed a card at 12:22 PM (the save instant) and no 12:30 reminder. Root cause
+// under test: extractEventDate only applies a clock when the text ALSO names a
+// day, so a bare "at 12:30 pm" is dropped and the event instant becomes `now`.
+// The diagnostic below makes that silent failure visible without logging text.
+
+test('a bare spaced-colon time with no day is the dropped-time signature', async () => {
+  const { harness, scheduler } = await setup();
+  try {
+    const now = Date.now();
+    const dropped = {
+      id: 'tl-dropped',
+      title: '🤝 MEETING',
+      description: 'faiz meeting with shaaf at 12 : 30 pm',
+      // eventDate == createdAt (the parser fell back to `new Date()`).
+      eventDate: iso(now),
+      createdAt: iso(now),
+      showOnCalendar: true,
+    };
+    assert.equal(
+      scheduler.looksLikeDroppedEventTime(dropped, now),
+      true,
+      'eventDate equal to createdAt plus a clock in the text is the dropped-time signature',
+    );
+    assert.equal(
+      scheduler.looksLikeDroppedEventTime({ ...dropped, description: 'plain reminder' }, now),
+      false,
+      'no clock in the text means the now-fallback is legitimate',
+    );
+    assert.equal(
+      scheduler.looksLikeDroppedEventTime(
+        { ...dropped, eventDate: iso(now + 3 * 60 * 60 * 1000) },
+        now,
+      ),
+      false,
+      'an eventDate clearly away from createdAt means a time WAS applied',
+    );
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test('the clock hint accepts spaced, dotted and bare forms but not prose', async () => {
+  const { harness, scheduler } = await setup();
+  try {
+    const cases: Array<[string, boolean]> = [
+      ['faiz meeting with shaaf at 12 : 30 pm', true],
+      ['meeting at 12:30 pm', true],
+      ['meeting 5.30 pm', true],
+      ['meeting 5 30 pm', true],
+      ['at 9 pm', true],
+      ['lunch with shaaf tomorrow', false],
+      ['shaaf returned 2000 rupees', false],
+    ];
+    for (const [text, expected] of cases) {
+      assert.equal(
+        scheduler.textMentionsClock(text),
+        expected,
+        `textMentionsClock(${JSON.stringify(text)})`,
+      );
+    }
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test('a natural-language meeting time is now parked for a real future instant', async () => {
+  const { harness, timelines, scheduler } = await setup();
+  try {
+    const parser = await import('../src/utils/activityParser');
+    const eventDate = parser.extractEventDate('faiz meeting with shaaf at 12 : 30 pm');
+    assert.ok(eventDate.getTime() > Date.now(), 'the parsed instant is schedulable');
+
+    await timelines.create(USER, {
+      id: 'tl-nl',
+      title: '🤝 MEETING',
+      description: 'faiz meeting with shaaf at 12 : 30 pm',
+      eventDate: eventDate.toISOString(),
+      showOnCalendar: true,
+    });
+
+    await scheduler.resyncEventReminders(USER);
+
+    const at = parkedValue('tl-nl');
+    assert.ok(at, 'the meeting now gets a parked reminder');
+    assert.equal(at, eventDate.getTime(), 'parked for exactly the parsed instant');
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test('a credit due reminder is scheduled once and refresh resync does not duplicate it', async () => {
+  const { harness, timelines, scheduler } = await setup();
+  try {
+    const credit = await addCredit(timelines, 'credit-once', localDateAfter(2));
+    assert.equal(await scheduler.scheduleCreditDueReminder(credit, false), true);
+    assert.equal(await scheduler.scheduleCreditDueReminder(credit, false), true);
+    assert.equal(nativeControls.scheduledNotifications.size, 1);
+    const id = `${CREDIT_ID_PREFIX}${credit.id}`;
+    const scheduled = nativeControls.scheduledNotifications.get(id);
+    assert.ok(scheduled);
+    const trigger = scheduled!.trigger as { value?: number };
+    const expected = new Date(`${credit.creditDueDate}T09:00:00`).getTime();
+    assert.equal(trigger.value, expected, 'the notification is parked at 9:00 AM local on its due date');
+    await scheduler.resyncCreditDueReminders(USER);
+    assert.equal(nativeControls.scheduledNotifications.size, 1);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test('credit due resync replaces a changed date and leaves event reminders alone', async () => {
+  const { harness, timelines, scheduler } = await setup();
+  try {
+    const credit = await addCredit(timelines, 'credit-change', localDateAfter(2));
+    await scheduler.scheduleCreditDueReminder(credit, false);
+    const id = `${CREDIT_ID_PREFIX}${credit.id}`;
+    const oldValue = (nativeControls.scheduledNotifications.get(id)!.trigger as { value: number }).value;
+    await timelines.update(USER, credit.id, { creditDueDate: localDateAfter(3) });
+    park('unrelated-event', atMinutes(90));
+    const eventValue = parkedValue('unrelated-event');
+
+    await scheduler.resyncCreditDueReminders(USER);
+
+    const newValue = (nativeControls.scheduledNotifications.get(id)!.trigger as { value: number }).value;
+    assert.notEqual(newValue, oldValue, 'changed due date replaces the existing scheduled credit reminder');
+    assert.equal(newValue, new Date(`${localDateAfter(3)}T09:00:00`).getTime());
+    assert.equal(parkedValue('unrelated-event'), eventValue, 'credit resync leaves event reminders untouched');
+    assert.equal(nativeControls.scheduledNotifications.size, 2);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test('marking a credit received cancels its pending due reminder', async () => {
+  const { harness, timelines, scheduler } = await setup();
+  try {
+    const credit = await addCredit(timelines, 'credit-received', localDateAfter(2));
+    await scheduler.scheduleCreditDueReminder(credit, false);
+    const service = await import('../src/services/expensesService');
+    assert.equal(await service.setReceivableStatus(USER, credit.id, 'received'), true);
+    assert.equal(nativeControls.scheduledNotifications.has(`${CREDIT_ID_PREFIX}${credit.id}`), false);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test('a credit without a due date never gets a due-date notification', async () => {
+  const { harness, timelines, scheduler } = await setup();
+  try {
+    const credit = await addCredit(timelines, 'credit-no-date', null);
+    assert.equal(await scheduler.scheduleCreditDueReminder(credit, false), false);
+    await scheduler.resyncCreditDueReminders(USER);
+    assert.equal(nativeControls.scheduledNotifications.size, 0);
   } finally {
     await harness.cleanup();
   }

@@ -9,9 +9,11 @@ import { useAuthStore } from './src/store/authStore';
 import { useSmsIngest } from './src/hooks/useSmsIngest';
 import {
   clearAllEventReminders,
+  clearAllCreditDueReminders,
   handleInitialNotificationResponse,
   initNotificationListeners,
   resyncEventReminders,
+  resyncCreditDueReminders,
 } from './src/services/notificationScheduler';
 
 class ErrorBoundary extends Component<
@@ -71,9 +73,11 @@ export default function App() {
     prevUserId.current = userId ?? null;
     if (prev && !userId) {
       void clearAllEventReminders().catch(() => {});
+      void clearAllCreditDueReminders().catch(() => {});
     }
     if (userId) {
       void resyncEventReminders(userId).catch(() => {});
+      void resyncCreditDueReminders(userId).catch(() => {});
     }
   }, [userId]);
 

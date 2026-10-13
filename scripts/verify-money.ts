@@ -21,6 +21,8 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { parseActivity } from '../src/utils/activityParser';
+import { classifyCreditDueDate } from '../src/utils/creditDueDate';
 
 import { freshDb } from './real-sqlite';
 
@@ -28,6 +30,57 @@ const USER = 'user-1';
 const OTHER_USER = 'user-2';
 
 const NOW = '2026-09-30T10:00:00.000Z';
+
+test('a lent amount is structured as one pending credit, not an expense', () => {
+  const parsed = parseActivity('Today I lent Shaaf ₹5,000');
+  assert.equal(parsed.money?.role, 'receive');
+  assert.equal(parsed.money?.amountPaise, 500000);
+  assert.equal(parsed.money?.status, 'pending');
+});
+
+test('a parsed credit due date persists on the same timeline row through refresh', async () => {
+  const { timelines, cleanup } = await loaded();
+  try {
+    const parsed = parseActivity('Shaaf will return my ₹50,000 on 15 October 2026.');
+    await timelines.create(USER, serverTimeline({ id: 'tl-due' }) as never);
+    await timelines.setMoneyAttribution(USER, 'tl-due', {
+      role: 'receive',
+      amountPaise: parsed.money!.amountPaise,
+      receivableStatus: parsed.money!.status,
+      creditDueDate: parsed.money!.dueDate,
+    });
+    const credit = (await timelines.getReceivables(USER))[0];
+    assert.equal(credit.id, 'tl-due');
+    assert.equal(credit.creditDueDate, '2026-10-15');
+    await timelines.replaceAll(USER, [serverTimeline({ id: 'tl-due' }) as never]);
+    assert.equal((await timelines.getReceivables(USER))[0].creditDueDate, '2026-10-15');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('the reported give-me credit persists and reads back as Upcoming', async () => {
+  const { timelines, cleanup } = await loaded();
+  try {
+    const parsed = parseActivity('Ahmed Bhai will give me 2000 on 15 October 2026');
+    assert.ok(parsed.money, 'the entry must be recognized as structured credit');
+    await timelines.create(USER, serverTimeline({ id: 'tl-ahmed' }) as never);
+    await timelines.setMoneyAttribution(USER, 'tl-ahmed', {
+      role: parsed.money.role,
+      amountPaise: parsed.money.amountPaise,
+      receivableStatus: parsed.money.status,
+      creditDueDate: parsed.money.dueDate,
+    });
+    const credit = (await timelines.getReceivables(USER))[0];
+    assert.equal(credit.creditDueDate, '2026-10-15');
+    assert.equal(
+      classifyCreditDueDate(credit.creditDueDate, new Date(2026, 9, 1)),
+      'Upcoming',
+    );
+  } finally {
+    await cleanup();
+  }
+});
 
 function serverTimeline(overrides: Record<string, unknown> = {}) {
   return {

@@ -213,3 +213,39 @@ test('the Bell still renders when the API is unreachable', async () => {
     await cleanup();
   }
 });
+
+// --- Refreshing a stale countdown --------------------------------------------
+// The Bell showed "Starts in 15 hours" (and kept showing it) after the event time
+// changed: EVENT rows were written with INSERT OR IGNORE under a stable id, so the
+// first countdown text was frozen forever. The row must refresh in place when the
+// event's time changes, without ever creating a duplicate.
+
+test('an edited event time refreshes its countdown without duplicating the row', async () => {
+  const { store, cleanup } = await loadBellStack();
+  try {
+    const timelinesService = await import('../src/services/timelinesService');
+    api.seed({ id: 'tl-countdown', title: 'Standup', description: 'Standup', eventDate: inMinutes(20) });
+
+    await store.getState().refresh();
+    const first = (bell(store).list as Array<{ id: string; type: string; message: string }>).find(
+      (n) => n.type === 'EVENT',
+    );
+    assert.ok(first, 'precondition: the upcoming event produced an EVENT countdown');
+    assert.match(first!.message, /Starts in \d+ (minute|minutes)\./);
+
+    // The event is rescheduled hours later, exactly as editing it in the app would.
+    api.timelines[0].eventDate = inMinutes(200);
+    await timelinesService.refreshTimelines(USER);
+    await store.getState().refresh();
+
+    const events = (bell(store).list as Array<{ id: string; type: string; message: string }>).filter(
+      (n) => n.type === 'EVENT',
+    );
+    assert.equal(events.length, 1, 'refreshing the countdown must not create a second EVENT row');
+    assert.equal(events[0].id, first!.id, 'the same stable id is updated in place');
+    assert.notEqual(events[0].message, first!.message, 'the countdown text is refreshed');
+    assert.match(events[0].message, /Starts in 3 hours\./, 'it now counts to the new time');
+  } finally {
+    await cleanup();
+  }
+});

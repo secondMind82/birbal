@@ -22,6 +22,43 @@ import { test } from 'node:test';
 import './stubs/preload';
 
 import { extractEventDate, parseActivity, parseClockTime } from '../src/utils/activityParser';
+import { classifyCreditDueDate, extractCreditDueDate } from '../src/utils/creditDueDate';
+
+test('a promised repayment date is extracted as a local date and attached to the credit', () => {
+  const now = new Date(2026, 9, 1, 12);
+  const text = 'Shaaf will return my ₹50,000 on 15 October 2026.';
+  assert.equal(extractCreditDueDate(text, now), '2026-10-15');
+  const parsed = parseActivity(text);
+  assert.equal(parsed.money?.role, 'receive');
+  assert.equal(parsed.money?.status, 'pending');
+  assert.equal(parsed.money?.amountPaise, 5_000_000);
+  assert.equal(parsed.money?.dueDate, '2026-10-15');
+});
+
+test('bare amount in a give-me repayment promise parses its explicit due date', () => {
+  const now = new Date(2026, 9, 1, 12);
+  const parsed = parseActivity('Ahmed Bhai will give me 2000 on 15 October 2026');
+  assert.equal(parsed.money?.role, 'receive');
+  assert.equal(parsed.money?.amountPaise, 200_000);
+  assert.equal(parsed.money?.status, 'pending');
+  assert.equal(parsed.money?.dueDate, '2026-10-15');
+  assert.equal(classifyCreditDueDate(parsed.money?.dueDate, now), 'Upcoming');
+});
+
+test('a transaction date alone is not mistaken for a repayment due date', () => {
+  assert.equal(
+    extractCreditDueDate('I lent Shaaf ₹50,000 on 15 October 2026.', new Date(2026, 9, 1)),
+    null,
+  );
+});
+
+test('credit due dates classify as overdue, today, upcoming, or absent by local day', () => {
+  const now = new Date(2026, 9, 15, 16);
+  assert.equal(classifyCreditDueDate('2026-10-14', now), 'Overdue');
+  assert.equal(classifyCreditDueDate('2026-10-15', now), 'Due Today');
+  assert.equal(classifyCreditDueDate('2026-10-16', now), 'Upcoming');
+  assert.equal(classifyCreditDueDate(null, now), 'No Due Date');
+});
 
 test('parseClockTime reads a space-separated minute pair as hours:minutes', () => {
   assert.deepEqual(parseClockTime('1 52 pm'), { hour24: 13, minute: 52, raw: '1 52 pm' });
@@ -89,4 +126,56 @@ test('parseActivity renders midnight and noon correctly', () => {
   const noon = parseActivity('lunch today 12 pm').details.find((d) => d.label === 'Time');
   assert.equal(midnight?.value, '12:00 AM');
   assert.equal(noon?.value, '12:00 PM');
+});
+
+// --- Spaced-colon clock forms -------------------------------------------------
+// Device report: "faiz meeting with shaaf at 12 : 30 pm" produced no time at all.
+// parseClockTime required the minutes to be colon-joined with NO surrounding
+// spaces, so the space before the colon made the whole match fail.
+
+test('parseClockTime reads a colon with spaces on either side', () => {
+  assert.deepEqual(parseClockTime('12:30 pm'), { hour24: 12, minute: 30, raw: '12:30 pm' });
+  assert.deepEqual(parseClockTime('12 : 30 pm'), {
+    hour24: 12,
+    minute: 30,
+    raw: '12 : 30 pm',
+  });
+  assert.deepEqual(parseClockTime('1 : 00 PM'), { hour24: 13, minute: 0, raw: '1 : 00 PM' });
+});
+
+// --- Bare clock with no day ---------------------------------------------------
+// A valid time with no day keyword used to be discarded and replaced by `now`.
+// It is now the next occurrence of that wall time on the device.
+
+function fmt12(d: Date): string {
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+test('the reported meeting text resolves to 12:30, not the moment it was typed', () => {
+  const result = extractEventDate('faiz meeting with shaaf at 12 : 30 pm');
+  assert.equal(result.getHours(), 12);
+  assert.equal(result.getMinutes(), 30);
+  assert.equal(result.getSeconds(), 0);
+  assert.ok(result.getTime() >= Date.now(), 'the instant is schedulable (not a past fallback)');
+});
+
+test('a bare future clock stays on today', () => {
+  const ahead = new Date(Date.now() + 30 * 60_000);
+  const result = extractEventDate(`meeting at ${fmt12(ahead)}`);
+  assert.equal(result.getDate(), ahead.getDate());
+  assert.equal(result.getMonth(), ahead.getMonth());
+  assert.equal(result.getHours(), ahead.getHours());
+  assert.equal(result.getMinutes(), ahead.getMinutes());
+  assert.equal(result.getSeconds(), 0);
+});
+
+test('a bare clock that already passed rolls to tomorrow', () => {
+  const past = new Date(Date.now() - 30 * 60_000);
+  const expected = new Date(past);
+  expected.setDate(expected.getDate() + 1);
+  const result = extractEventDate(`meeting at ${fmt12(past)}`);
+  assert.equal(result.getDate(), expected.getDate());
+  assert.equal(result.getHours(), expected.getHours());
+  assert.equal(result.getMinutes(), expected.getMinutes());
+  assert.ok(result.getTime() > Date.now(), 'a passed time must not be saved in the past');
 });

@@ -162,7 +162,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     set({ loading: true });
     try {
       const timelines = await timelinesService.getTimelines(userId);
-      const inserted = await notificationsRepository.insertNew(
+      const inserted = await notificationsRepository.refreshGenerated(
         userId,
         buildNotifications(timelines),
       );
